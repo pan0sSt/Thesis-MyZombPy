@@ -1,18 +1,59 @@
 #!/usr/bin/env python
 
 import scapy.all as scapy  # handle tasks like scanning and network discovery
+import subprocess  # function for shell commands
+import re  # regular expressions
 import time  # use sleep() for delays
+from sys import platform  # info about the os
+
+
+# function that returns a list with responses from a broadcast
+def broadcast(ip):
+    arp_request = scapy.ARP(pdst=ip)  # ARP object creation, asks who has target IP
+    brdcast = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")  # Ethernet object creation, set destination MAC to broadcast MAC
+    arp_request_broadcast = brdcast / arp_request  # Combine into a single packet
+
+    # Send packets with custom Ether, send packet and receive response. "timeout": Time to wait for response
+    return scapy.srp(arp_request_broadcast, timeout=1, verbose=False)[0]
+
+
+# function that scans network IPs
+def network_scanner():
+    print('[+] Scanning Network...')
+    time.sleep(0.1)
+    if SYS_PLATFORM == "linux":
+        print('[+] Capturing IPv4 Address...')
+        time.sleep(0.1)
+        eth0_result = subprocess.run(["ip", "a", "show", "eth0"], capture_output=True, text=True).stdout
+        ipv4_search_result = re.search(r"\b(\d+\.){3}\d+/\d+\b", eth0_result)
+        if ipv4_search_result:
+            try:
+                dot_index = (len(ipv4_search_result.group(0)) - 1) - ipv4_search_result.group(0)[::-1].index('.')
+                slash_index = ipv4_search_result.group(0).index('/')
+                scan_ip = ipv4_search_result.group(0)[:dot_index + 1] + '0' + ipv4_search_result.group(0)[slash_index:]
+                return [ip[1].psrc for ip in broadcast(scan_ip)]  # returns the list with the IPs
+            except ValueError:
+                print("[!] '.' or '/' not found in IPv4 string")
+                return
+        else:
+            print("[-] Could not read IPv4 Address.")
+            return
+    elif SYS_PLATFORM == "win32":
+        example = 128
+        if example == 0:
+            num_of_zeros = 8
+        else:
+            binary_form = bin(example)[2:]
+            num_of_zeros = len(binary_form) - len(binary_form.rstrip('0'))
+    else:
+        return
 
 
 # function that returns MAC address of selected IP
 def get_mac(ip):
-    arp_request = scapy.ARP(pdst=ip)  # ARP object creation, asks who has target IP
-    broadcast = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")  # Ether object creation, set dst MAC to broadcast MAC
-    arp_request_broadcast = broadcast / arp_request  # Combine into a single packet
-    answered_list = scapy.srp(arp_request_broadcast, timeout=1, verbose=False)[0]  # Send packets with custom Ether,
-    # send packet and receive response. "timeout": Time to wait for response
+    answered_mac = broadcast(ip)
     try:
-        return answered_list[0][1].hwsrc
+        return answered_mac[0][1].hwsrc
     except IndexError:
         print("[!] No response..")
 
@@ -40,7 +81,7 @@ def restore(dst_ip, src_ip):
 
 class ArpSpoof:
     def __init__(self, trg, src):
-        print("[+] Initializing Man-In-The-Middle ...")
+        print("[+] Initializing Man-In-The-Middle...")
         self.source = src
         self.target = trg
 
@@ -64,6 +105,8 @@ class ArpSpoof:
                 f.write("0")  # disable ip forwarding
 
 
+SYS_PLATFORM = platform  # os of the current machine
+
 # ------------------------------POSSIBLE ROUTER IP------------------------------
 # a set containing all the default router gateways
 router_default = {'10.90.90.90', '192.168.0.50', '10.1.1.1', '192.168.0.3', '192.168.0.1', '192.168.1.99',
@@ -78,24 +121,39 @@ router_default = {'10.90.90.90', '192.168.0.50', '10.1.1.1', '192.168.0.3', '192
 
 # Update the router_default with the new IPs
 try:
+    print('[+] Reading file: newIPs...')
+    time.sleep(0.1)
     with open('/root/PycharmProjects/TheBoss/newIPs', 'r') as newIPsFile:
+        print("[+] Updating router's IP list...")
+        time.sleep(0.1)
         update_IPs = [ip.strip('\n\r') for ip in newIPsFile.readlines()]
         router_default.update(update_IPs)
+        print("[+] Done updating. Closing file...")
+        time.sleep(0.1)
     newIPsFile.close()
+    print("[+] File closed.")
+    time.sleep(0.1)
 except FileNotFoundError:
     print("[!] newIPs file doesn't exist")
 # ------------------------------------------------------------------------------
 
-# scan network for IPs
-scapy.arping('10.0.2.0/16')
+scan_result = network_scanner()
 
-scan_list = ['10.0.2.8', '10.0.2.1']
-
-# for curr_ip in scan_list:
-#     if curr_ip in router_default:
-#         print('{}'.format(curr_ip))
-#     else:
-#         print('not in')
+if scan_result:
+    print('[+] Searching for router IP...')
+    time.sleep(0.1)
+    for curr_ip in scan_result:
+        if curr_ip in router_default:
+            print('[+] Router IP found: {}'.format(curr_ip))
+            time.sleep(0.1)
+            router_ip = curr_ip
+            scan_result.remove(curr_ip)
+            break
+        else:
+            pass
+else:
+    print('[-] Network scan failed.')
+print(scan_result)
 # target = input('Your target IP: ')
 # source = input('Your source IP: ')
 # arp_spoofing = ArpSpoof(target, source)
