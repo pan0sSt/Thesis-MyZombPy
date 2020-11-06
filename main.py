@@ -10,6 +10,8 @@ import subprocess
 import ctypes
 import os
 
+from VulnerabilityScanner import Scanner
+
 
 # function that returns a list with responses from a broadcast
 def broadcast(ip):
@@ -400,6 +402,33 @@ while True:
         else:
             print('[!] Hook injector already running.')
 
+    elif command == 'vulnscan()':
+        login_info = False
+        ignore_links = []
+        target_url = input('Your target URL: ')
+        vuln_decision = input('Do you want to ignore any link types[y/n]: ')
+        while vuln_decision.lower() == 'y':
+            ignore_links.append(input('Link to ignore: '))
+            vuln_decision = input('Ignore another?[y/n]: ')
+        vuln_decision = input('Do you want to insert login credentials[y/n]: ')
+        if vuln_decision.lower() == 'y':
+            vuln_login_url = input('Login URL: ')
+            vuln_username = input('Username: ')
+            vuln_password = input('Password: ')
+            login_info = True
+        print("[+] Initializing Vulnerability Scanner...")
+        time.sleep(0.1)
+        vuln_scanner = Scanner(target_url, ignore_links)
+        if login_info:
+            data_dict = {"username": vuln_username, "password": vuln_password, "Login": "submit"}
+            vuln_scanner.session.post(vuln_login_url, data=data_dict)
+        try:
+            vuln_scanner.crawl()
+            vuln_scanner.run_scanner()
+        except:
+            print("[!] Something went wrong.")
+        print("\n[+] Process finished...")
+
     elif command == 'killarp()':
         kill_arp()
 
@@ -421,6 +450,7 @@ while True:
         print("killarp()       Kill process running Arp Spoof")
         print("killdns()       Kill process running Dns Spoof")
         print("killhook()      Kill process running Hook Injector")
+        print("vulnscan()      Vulnerability Scanner")
         print("exit()          Exit the app")
         print("----------------------------------")
 
