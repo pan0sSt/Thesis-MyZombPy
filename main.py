@@ -463,6 +463,7 @@ while True:
         print("killdns       Kill process running Dns Spoof")
         print("killhook      Kill process running Hook Injector")
         print("vulnscan      Vulnerability Scanner")
+        print("backdoor      Control Center")
         print("exit          Exit the app")
         print("----------------------------------")
 
