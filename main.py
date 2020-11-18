@@ -9,6 +9,7 @@ import netfilterqueue
 import subprocess
 import ctypes
 import os
+import socket
 
 from VulnerabilityScanner import Scanner
 from Listener import Listener
@@ -299,6 +300,24 @@ def kill_arp():
         print('[-] No arp spoof running at the moment.')
 
 
+def port_scanner():
+    port_list = []
+    ip = input("Insert IP: ")
+    for port in range(1, 65536):
+        try:
+            socket.setdefaulttimeout(2)
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect((ip, port))
+            port_list.append(port)
+            banner = s.recv(1024).decode('utf-8').strip("\r\n")
+            s.close()
+            if banner:
+                print("Port: {} : {}".format(port, banner))
+        except:
+            pass
+    return port_list
+
+
 ########################
 # INITIALIZE VARIABLES #
 ########################
@@ -308,6 +327,7 @@ allow_arp = 1  # flag that shows if an arp spoof is already running
 allow_dns = 1  # flag that shows if a dns spoof is already running
 allow_hook = 1  # flag that shows if a hook injector is already running
 scan_result = []  # list of network IPs
+open_ports = [] # list of open ports
 router_ip = scapy.conf.route.route("0.0.0.0")[2]  # router's ip
 
 try:
@@ -440,6 +460,10 @@ while True:
         my_listener.shell()
         connections_status.terminate()
         service.terminate()
+
+    elif command == 'portscan':
+        open_ports = port_scanner()
+        print(open_ports)
 
     elif command == 'killarp':
         kill_arp()
