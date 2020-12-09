@@ -241,6 +241,7 @@ def hook():
         global allow_hook
         allow_hook = 1
 
+
 def kill_dns():
     try:
         if dns_process.is_alive():
@@ -301,33 +302,44 @@ def kill_arp():
 
 
 def port_scanner():
-    port_list = []
+    port_list_tcp = []
     ip = input("Insert IP: ")
+    print("Scanning...")
     for port in range(1, 65536):
         try:
             socket.setdefaulttimeout(2)
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.connect((ip, port))
-            port_list.append(port)
+            port_list_tcp.append(port)
             banner = s.recv(1024).decode('utf-8').strip("\r\n")
             s.close()
             if banner:
                 print("Port: {} : {}".format(port, banner))
         except:
             pass
-    return port_list
+    return port_list_tcp
 
 
-########################
-# INITIALIZE VARIABLES #
-########################
+def request_dns(dns_port):
+    udp = scapy.UDP(sport=my_port, dport=dns_port)
+    query = ip / udp / dns
+
+    rawsock.sendto(scapy.raw(query), (dns_ip, dns_port))
+    sock.settimeout(0.0001)
+    try:
+        (res, addr) = sock.recvfrom(2048)
+        return addr[1]
+    except socket.timeout:
+        pass
+
+
 SYS_PLATFORM = sys.platform  # os of the current machine
 command = ''  # command to be executed
 allow_arp = 1  # flag that shows if an arp spoof is already running
 allow_dns = 1  # flag that shows if a dns spoof is already running
 allow_hook = 1  # flag that shows if a hook injector is already running
 scan_result = []  # list of network IPs
-open_ports = [] # list of open ports
+tcp_ports = []  # list of open ports
 router_ip = scapy.conf.route.route("0.0.0.0")[2]  # router's ip
 
 try:
@@ -462,8 +474,35 @@ while True:
         service.terminate()
 
     elif command == 'portscan':
-        open_ports = port_scanner()
-        print(open_ports)
+        tcp_ports = port_scanner()
+        print("Open Ports: {}".format(str(tcp_ports).replace(' ', '')))
+
+    elif command == 'requestdns':
+        my_ip = '10.0.2.10'
+        my_domain = 'web1.example6217.com'
+        my_port = 5533
+        dns_ip = input("Insert IP: ")
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((my_ip, my_port))
+
+        rawsock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+        rawsock.setsockopt(socket.IPPROTO_IP, socket.SO_REUSEADDR, 1)
+
+        ip = scapy.IP(src=my_ip, dst=dns_ip)
+        qdsec = scapy.DNSQR(qname=my_domain, qtype="A", qclass="IN")
+        dns = scapy.DNS(qr=0, opcode="QUERY", rd=1, qdcount=1, ancount=0, nscount=0, arcount=0, qd=qdsec)
+
+        p = multiprocessing.Pool(8)
+        print("Sending requests...")
+        open_dns_ports = p.map(request_dns, list(range(1, 65535+1)))
+        p.close()
+        p.join()
+        open_dns_ports = [port for port in open_dns_ports if port is not None]
+        print("Open Ports: {}".format(str(open_dns_ports).replace(' ', '')))
+        sock.close()
+        rawsock.close()
 
     elif command == 'killarp':
         kill_arp()
@@ -488,6 +527,8 @@ while True:
         print("killhook      Kill process running Hook Injector")
         print("vulnscan      Vulnerability Scanner")
         print("backdoor      Control Center")
+        print("portscan      Scan for open ports")
+        print("requestdns    Scan for open ports on a DNS server")
         print("exit          Exit the app")
         print("----------------------------------")
 
