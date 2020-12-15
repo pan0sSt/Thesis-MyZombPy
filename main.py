@@ -514,9 +514,9 @@ while True:
         kill_hook()
 
     elif command == "help":
-        print("----------------------------------")
+        print("--------------------------------------------------")
         print("COMMANDS      DESCRIPTION")
-        print("----------------------------------")
+        print("--------------------------------------------------")
         print("help          Show commands")
         print("scan          Network scanning")
         print("arpspoof      Manual or Auto Arp Spoof")
@@ -530,7 +530,7 @@ while True:
         print("portscan      Scan for open ports")
         print("requestdns    Scan for open ports on a DNS server")
         print("exit          Exit the app")
-        print("----------------------------------")
+        print("--------------------------------------------------")
 
     else:
         print('[-] Command not found. Type help to show commands.')
