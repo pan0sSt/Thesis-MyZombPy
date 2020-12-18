@@ -50,6 +50,8 @@ class Listener:
     def check_connections(self):
         while True:
             sleep(15)
+            j = 0
+            deletion = set()
             for i, connection in enumerate(self.connections):
                 ready = select.select([self.connections[i]], [], [], 0.1)
                 self.reliable_send(["PING"], i)
@@ -58,8 +60,11 @@ class Listener:
                     pass
                 else:
                     connection.close()
-                    del self.connections[i]
-                    del self.addresses[i]
+                    deletion.add(i)
+            for i in deletion:
+                del self.connections[i-j]
+                del self.addresses[i-j]
+                j += 1
 
     # function that sends json objects through socket connection
     def reliable_send(self, data, i):
@@ -142,7 +147,7 @@ class Listener:
                     for connection in self.connections:
                         new_command = command[:]
                         new_command.append(str(i))
-                        new_command.append(str(i+step))
+                        new_command.append(str(i + step))
                         i = i + step + 1
                         json_data = json.dumps(new_command[1:]).encode('utf-8')
                         try:
