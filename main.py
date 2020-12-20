@@ -7,72 +7,11 @@ import sys
 import multiprocessing
 import netfilterqueue
 import subprocess
-import ctypes
-import os
 import socket
-from functools import partial
 
-from VulnerabilityScanner import Scanner
+import NetworkScanner
+import VulnerabilityScanner
 from Listener import Listener
-
-
-# function that returns a list with responses from a broadcast
-def broadcast(ip):
-    arp_request = scapy.ARP(pdst=ip)  # ARP object creation, asks who has target IP
-    brdcast = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")  # Ethernet object creation, set destination MAC to broadcast MAC
-    arp_request_broadcast = brdcast / arp_request  # Combine into a single packet
-
-    # Send packets with custom Ether, send packet and receive response. "timeout": Time to wait for response
-    return scapy.srp(arp_request_broadcast, timeout=2, retry=3, verbose=False)[0]
-
-
-def scan(scan_ip, network_results):
-    network_results.append([ip[1].psrc for ip in broadcast(scan_ip)])
-
-
-# function that scans network IPs
-def network_scanner():
-    print('[+] Capturing Local Network Address...')
-    route = re.findall(r'[0-9]+(?:\.[0-9]+){3}', str(scapy.conf.route))
-    network, netmask, machine_ip = route[4], route[5], route[7]
-    if network and netmask:
-        print('Network: {}'.format(network))
-        print('Netmask: {}'.format(netmask))
-        print("Machine's IP: {}".format(machine_ip))
-        try:
-            cidr = sum([bin(int(x)).count('1') for x in netmask.split('.')])
-            scan_ip = network + '/' + str(cidr)
-            print('[+] Scanning Network...')
-            manager = multiprocessing.Manager()
-            network_results = manager.list()
-            final = []
-            p_processes = []
-            print("Sending requests...")
-
-            for _ in range(0, 5):
-                p = multiprocessing.Process(target=scan, args=(scan_ip, network_results))
-                p.start()
-                p_processes.append(p)
-            for process in p_processes:
-                process.join()
-
-            for temp in network_results:
-                if len(temp) > len(final):
-                    final = temp
-            print('[+] Network scan complete.')
-
-            try:
-                final.remove(machine_ip)
-            except ValueError:
-                pass
-
-            return final  # returns the list with the IPs
-        except ValueError:
-            print("[!] Something went wrong. Scan failed.")
-            return
-    else:
-        print("[-] Could not read Network or Subnet Mask. Scan failed.")
-        return
 
 
 # function that returns target, source IPs from input
@@ -91,7 +30,7 @@ def ip_input(scan_list):
 
 # function that returns MAC address of selected IP
 def get_mac(ip):
-    answered_mac = broadcast(ip)
+    answered_mac = NetworkScanner.broadcast(ip)
     try:
         return answered_mac[0][1].hwsrc
     except IndexError:
@@ -272,26 +211,7 @@ def kill_arp():
         print('[-] No arp spoof running at the moment.')
 
 
-def vulnscan_info():
-    ignore = []
-    target = input('Your target URL: ')
-    decision = input('Do you want to ignore any link types[y/n]: ')
-    while decision.lower() == 'y':
-        ignore.append(input('Link to ignore: '))
-        decision = input('Ignore another?[y/n]: ')
-    scanner = Scanner(target, ignore)
-
-    decision = input('Do you want to insert login credentials[y/n]: ')
-    if decision.lower() == 'y':
-        login_url = input('Login URL: ')
-        username = input('Username: ')
-        password = input('Password: ')
-        data_dict = {"username": username, "password": password, "Login": "submit"}
-        scanner.session.post(login_url, data=data_dict)
-    return scanner
-
-
-def port_scanner():
+def scan_ports():
     port_list_tcp = []
     ip = input("Insert IP: ")
     print("[+] Scanning...")
@@ -310,7 +230,7 @@ def port_scanner():
     return port_list_tcp
 
 
-def request_dns(dns_port):
+def scan_dns(dns_port):
     udp = scapy.UDP(sport=my_port, dport=dns_port)
     query = ip / udp / dns
 
@@ -344,7 +264,7 @@ while True:
         sys.exit()
 
     elif command == "scan":
-        scan_result = network_scanner()
+        scan_result = NetworkScanner.network_scanner()
 
     elif command == "arpspoof":
         if allow_arp and scan_result:
@@ -401,7 +321,7 @@ while True:
             print('[!] Hook injector already running.')
 
     elif command == 'vulnscan':
-        vuln_scanner = vulnscan_info()
+        vuln_scanner = VulnerabilityScanner.vulnscan_info()
         print("\n[+] Initializing Vulnerability Scanner...")
         try:
             vuln_scanner.crawl()
@@ -421,7 +341,7 @@ while True:
         service.terminate()
 
     elif command == 'portscan':
-        tcp_ports = port_scanner()
+        tcp_ports = scan_ports()
         print("Open Ports: {}".format(str(tcp_ports).replace(' ', '')))
 
     elif command == 'requestdns':
@@ -443,7 +363,7 @@ while True:
 
         p = multiprocessing.Pool(8)
         print("Sending requests...")
-        open_dns_ports = p.map(request_dns, list(range(1, 65535+1)))
+        open_dns_ports = p.map(scan_dns, list(range(1, 65535 + 1)))
         p.close()
         p.join()
         open_dns_ports = [port for port in open_dns_ports if port is not None]
