@@ -10,6 +10,7 @@ import subprocess
 import ctypes
 import os
 import socket
+from functools import partial
 
 from VulnerabilityScanner import Scanner
 from Listener import Listener
@@ -25,6 +26,10 @@ def broadcast(ip):
     return scapy.srp(arp_request_broadcast, timeout=2, retry=3, verbose=False)[0]
 
 
+def scan(scan_ip, network_results):
+    network_results.append([ip[1].psrc for ip in broadcast(scan_ip)])
+
+
 # function that scans network IPs
 def network_scanner():
     print('[+] Capturing Local Network Address...')
@@ -38,16 +43,29 @@ def network_scanner():
             cidr = sum([bin(int(x)).count('1') for x in netmask.split('.')])
             scan_ip = network + '/' + str(cidr)
             print('[+] Scanning Network...')
+            manager = multiprocessing.Manager()
+            network_results = manager.list()
             final = []
+            p_processes = []
+            print("Sending requests...")
+
             for _ in range(0, 5):
-                temp = [ip[1].psrc for ip in broadcast(scan_ip)]
+                p = multiprocessing.Process(target=scan, args=(scan_ip, network_results))
+                p.start()
+                p_processes.append(p)
+            for process in p_processes:
+                process.join()
+
+            for temp in network_results:
                 if len(temp) > len(final):
                     final = temp
             print('[+] Network scan complete.')
+
             try:
                 final.remove(machine_ip)
             except ValueError:
                 pass
+
             return final  # returns the list with the IPs
         except ValueError:
             print("[!] Something went wrong. Scan failed.")
