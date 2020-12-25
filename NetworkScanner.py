@@ -5,13 +5,10 @@ import re
 import multiprocessing
 
 
-# function that returns a list with responses from a broadcast
 def broadcast(ip):
-    arp_request = scapy.ARP(pdst=ip)  # ARP object creation, asks who has target IP
-    brdcast = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")  # Ethernet object creation, set destination MAC to broadcast MAC
-    arp_request_broadcast = brdcast / arp_request  # Combine into a single packet
-
-    # Send packets with custom Ether, send packet and receive response. "timeout": Time to wait for response
+    arp_request = scapy.ARP(pdst=ip)
+    brdcast = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
+    arp_request_broadcast = brdcast / arp_request
     return scapy.srp(arp_request_broadcast, timeout=2, retry=3, verbose=False)[0]
 
 
@@ -19,7 +16,6 @@ def scan(scan_ip, network_results):
     network_results.append([ip[1].psrc for ip in broadcast(scan_ip)])
 
 
-# function that scans network IPs
 def network_scanner():
     print('[+] Capturing Local Network Address...')
     route = re.findall(r'[0-9]+(?:\.[0-9]+){3}', str(scapy.conf.route))
@@ -54,11 +50,10 @@ def network_scanner():
             except ValueError:
                 pass
 
-            return final  # returns the list with the IPs
+            return final
         except ValueError:
             print("[!] Something went wrong. Scan failed.")
             return
     else:
         print("[-] Could not read Network or Subnet Mask. Scan failed.")
         return
-
